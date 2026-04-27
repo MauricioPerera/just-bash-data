@@ -299,7 +299,66 @@ v2-gptoss-turn1-cmds.json
 v2-granite-turn1-cmds.json
 ```
 
-The alias delivered exactly the predicted effect: the blocked model now completes, and the previously-completing models finish in fewer turns. Net cost reduction estimated ~30-50% per task across the benchmark.
+### Cost reduction analysis (v0.1.0 → v0.2.0)
+
+#### Token consumption per task
+
+| | v0.1.0 input | v0.2.0 input | Δ input | v0.1.0 output | v0.2.0 output | Δ output |
+|---|---:|---:|---:|---:|---:|---:|
+| Granite 4.0-h-micro | 3 215 | 450 | **-86%** | 477 | 371 | -22% |
+| GPT-OSS-20B | 988 | 730 | -26% | 1 395 | 947 | -32% |
+| Llama 3.2 11B-V | 2 001 | 1 329 | -34% | 391 | 289 | -26% |
+
+Granite's caveat: the v0.2.0 retest used a slightly tighter system prompt to prevent an unrelated regression (the model dropping the `db books` prefix). The elimination of correction turns is fully alias-attributable; the input-token reduction beyond ~30% is partly the prompt change.
+
+#### Cost per task (USD)
+
+| Model | $/M in | $/M out | v0.1.0 cost | v0.2.0 cost | **Δ** |
+|---|---:|---:|---:|---:|---:|
+| Granite 4.0-h-micro | $0.017 | $0.11 | $0.000107 | $0.0000485 | **-55%** |
+| GPT-OSS-20B | $0.20 | $0.30 | $0.000616 | $0.000430 | **-30%** |
+| Llama 3.2 11B-V | $0.049 | $0.68 | $0.000364 (incomplete) | $0.000262 (complete) | **-28%** |
+
+#### Distribution of savings: input vs output
+
+| Model | Input cost saved | Output cost saved | Input share of savings | Output share |
+|---|---:|---:|---:|---:|
+| Granite | $0.0000470 | $0.0000117 | **80%** | 20% |
+| GPT-OSS-20B | $0.0000516 | $0.0001344 | 28% | **72%** |
+| Llama 3.2 11B-V | $0.0000329 | $0.0000694 | 32% | **68%** |
+
+Pattern: in models with low output-to-input ratio (Granite: 6.5× more expensive output) the savings concentrate in input — fewer turns means less history to re-send. In models with high output cost (GPT-OSS-20B reasoning at $0.30/M, Llama 3.2 11B-V at $0.68/M) the savings concentrate in output — eliminating the reasoning-heavy correction turn.
+
+#### Why outputs saved so much for the reasoning model
+
+GPT-OSS-20B's correction turn (v0.1.0 turn 2) burnt **3 042 chars of reasoning** for a single 1-line fix — about 760 tokens of internal thinking billed at the output rate. With the alias, that whole turn is gone:
+
+| | v0.1.0 turn 2 | v0.2.0 turn 2 |
+|---|---|---|
+| Reasoning tokens | ~760 | doesn't exist |
+| Output content tokens | ~140 | doesn't exist |
+| Cost of turn 2 | $0.000270 | $0.000000 |
+
+#### Extrapolation at scale (3 retested models combined)
+
+| Volume | v0.1.0 cost | v0.2.0 cost | Savings |
+|---|---:|---:|---:|
+| 1 000 tasks | $1.09 | $0.74 | $0.35 |
+| 10 000 tasks | $10.87 | $7.41 | **$3.46** |
+| 100 000 tasks | $108.70 | $74.10 | **$34.60** |
+| 1 000 000 tasks | $1 087 | $741 | **$346** |
+| 10 000 000 tasks | $10 870 | $7 410 | **$3 460** |
+
+At sustained 100K tasks/day across these three models, the alias saves **≈$12 600/year**. The same change benefits the other 5 models in the benchmark proportionally; the total savings across all 8 models would be roughly 1.5-2× this number.
+
+#### ROI per line of code
+
+The alias is **5 lines of production code** in `src/commands/db/crud.ts` plus 12 lines of tests. Comparing to alternatives:
+- Document the difference in AGENTS.md → costs nothing but didn't help (every model still defaulted to `$sum:1`).
+- Switch all agents to a more capable model → +$0.0006-0.0017 per task.
+- Patch the plugin → -$0.0001-0.0002 per task, no breaking changes, ~5 LOC.
+
+The plugin patch wins by 5× over the model-switch alternative and infinity-times over documentation.
 
 ## Frontier ranking — cost × reliability × context × latency
 
