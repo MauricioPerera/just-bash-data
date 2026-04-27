@@ -209,6 +209,121 @@ describe("db CRUD", () => {
     const arr = okJson<Array<{ total: number }>>(r);
     expect(arr[0]?.total).toBe(37);
   });
+
+  it("v0.3.0 alias: empty string '' is treated as empty filter '{}'", async () => {
+    const h = buildHarness();
+    await h.run(["x", "insert", '{"a":1}']);
+    await h.run(["x", "insert", '{"a":2}']);
+    await h.run(["x", "insert", '{"a":3}']);
+
+    const found = okJson<unknown[]>(await h.run(["x", "find", ""]));
+    expect(found).toHaveLength(3);
+
+    const counted = okJson<{ count: number }>(await h.run(["x", "count", ""]));
+    expect(counted.count).toBe(3);
+  });
+
+  it("v0.3.0 alias: find accepts second positional as Mongo-style options object", async () => {
+    const h = buildHarness();
+    for (const n of [3, 1, 4, 1, 5, 9, 2, 6]) {
+      await h.run(["x", "insert", `{"n":${n}}`]);
+    }
+
+    // sort via options
+    const sorted = okJson<Array<{ n: number }>>(
+      await h.run(["x", "find", "{}", '{"sort":{"n":-1}}']),
+    );
+    expect(sorted.map((d) => d.n)).toEqual([9, 6, 5, 4, 3, 2, 1, 1]);
+
+    // sort + limit via options
+    const top3 = okJson<Array<{ n: number }>>(
+      await h.run(["x", "find", "{}", '{"sort":{"n":-1},"limit":3}']),
+    );
+    expect(top3.map((d) => d.n)).toEqual([9, 6, 5]);
+
+    // skip + limit via options
+    const window = okJson<Array<{ n: number }>>(
+      await h.run(["x", "find", "{}", '{"sort":{"n":1},"skip":2,"limit":2}']),
+    );
+    expect(window.map((d) => d.n)).toEqual([2, 3]);
+
+    // project via options
+    const projected = okJson<Array<Record<string, unknown>>>(
+      await h.run(["x", "find", '{"n":1}', '{"project":{"n":1}}']),
+    );
+    expect(projected[0]?.n).toBe(1);
+  });
+
+  it("v0.3.0: --sort flag overrides options object sort when both present", async () => {
+    const h = buildHarness();
+    await h.run(["x", "insert", '{"n":1}']);
+    await h.run(["x", "insert", '{"n":3}']);
+    await h.run(["x", "insert", '{"n":2}']);
+
+    // flag says desc, options says asc → flag wins
+    const r = okJson<Array<{ n: number }>>(
+      await h.run(["x", "find", "{}", '{"sort":{"n":1}}', "--sort", "n:-1"]),
+    );
+    expect(r.map((d) => d.n)).toEqual([3, 2, 1]);
+  });
+});
+
+describe("db v0.3.0 export / import roundtrip", () => {
+  let h: Harness;
+  beforeEach(() => {
+    h = buildHarness();
+  });
+
+  it("export returns all docs in the collection", async () => {
+    await h.run(["x", "insert", '{"_id":"a","name":"Alice"}']);
+    await h.run(["x", "insert", '{"_id":"b","name":"Bob"}']);
+
+    const r = okJson<{ exported: number; docs: Array<{ _id: string; name: string }> }>(
+      await h.run(["x", "export"]),
+    );
+    expect(r.exported).toBe(2);
+    expect(r.docs.map((d) => d.name).sort()).toEqual(["Alice", "Bob"]);
+  });
+
+  it("import accepts an array of docs", async () => {
+    const payload = JSON.stringify([
+      { _id: "p1", v: 1 },
+      { _id: "p2", v: 2 },
+      { _id: "p3", v: 3 },
+    ]);
+    const r = okJson<{ imported: number }>(await h.run(["x", "import", payload]));
+    expect(r.imported).toBe(3);
+
+    const found = okJson<unknown[]>(await h.run(["x", "find", "{}"]));
+    expect(found).toHaveLength(3);
+  });
+
+  it("export → drop → re-create → import roundtrip preserves data", async () => {
+    // Set up admin-less harness so drop succeeds without RBAC
+    await h.run(["x", "insert", '{"_id":"k1","tag":"keep"}']);
+    await h.run(["x", "insert", '{"_id":"k2","tag":"keep"}']);
+
+    const exported = okJson<{ exported: number; docs: unknown[] }>(
+      await h.run(["x", "export"]),
+    );
+
+    okJson(await h.run(["x", "drop"]));
+    expect((await h.run(["x", "stats"])).exitCode).toBe(3);
+
+    okJson(await h.run(["x", "import", JSON.stringify(exported.docs)]));
+    const after = okJson<{ count: number }>(await h.run(["x", "count", ""]));
+    expect(after.count).toBe(2);
+  });
+
+  it("import rejects non-array payload with exit 2", async () => {
+    const r = await h.run(["x", "import", '{"not":"an-array"}']);
+    expect(r.exitCode).toBe(2);
+  });
+
+  it("import rejects array with non-object items with exit 2", async () => {
+    const r = await h.run(["x", "import", '[{"ok":true}, "string"]']);
+    expect(r.exitCode).toBe(2);
+  });
 });
 
 describe("db indexes", () => {

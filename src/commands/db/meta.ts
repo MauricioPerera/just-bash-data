@@ -2,7 +2,13 @@ import type { CommandContext } from "just-bash";
 import { flagBool, type ParsedArgs } from "../../lib/args.js";
 import { CommandError, EXIT } from "../../lib/errors.js";
 import type { PluginRegistry } from "../../registry.js";
-import { ensureCollExists, requireAuth, requireRole } from "./shared.js";
+import {
+  ensureCollExists,
+  isFilter,
+  parseJson,
+  requireAuth,
+  requireRole,
+} from "./shared.js";
 
 export const indexHandler = async (
   reg: PluginRegistry,
@@ -85,4 +91,36 @@ export const statsHandler = async (
       sizeBytes,
     }),
   };
+};
+
+export const exportHandler = async (
+  reg: PluginRegistry,
+  _ctx: CommandContext,
+  _parsed: ParsedArgs,
+  coll: string,
+): Promise<{ stdout: string }> => {
+  ensureCollExists(reg, coll);
+  const docs = reg.getDocStore().collection(coll).export();
+  return { stdout: JSON.stringify({ exported: docs.length, docs }) };
+};
+
+export const importHandler = async (
+  reg: PluginRegistry,
+  ctx: CommandContext,
+  parsed: ParsedArgs,
+  coll: string,
+): Promise<{ stdout: string }> => {
+  await requireAuth(reg, ctx, parsed);
+  const arg = parsed.positional[2];
+  const data = parseJson(arg, ctx, "import data");
+  if (!Array.isArray(data)) {
+    throw new CommandError(EXIT.USAGE, "import expects an array of documents");
+  }
+  for (const item of data) {
+    if (!isFilter(item)) {
+      throw new CommandError(EXIT.USAGE, "every import item must be an object");
+    }
+  }
+  reg.getDocStore().collection(coll).import(data as Record<string, unknown>[]);
+  return { stdout: JSON.stringify({ imported: data.length }) };
 };

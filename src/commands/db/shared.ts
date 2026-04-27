@@ -12,6 +12,9 @@ export const parseJson = (
     throw new CommandError(EXIT.USAGE, `missing ${fieldName} argument`);
   }
   const text = arg === "-" ? ctx.stdin : arg;
+  // Mongo idiom alias: empty string is treated as empty filter "{}".
+  // Several models emit '' instead of '{}' to mean "no filter" / "match all".
+  if (text.trim() === "") return {};
   try {
     return JSON.parse(text);
   } catch {

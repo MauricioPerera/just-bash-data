@@ -87,6 +87,14 @@ Group accumulators: `$count` `$sum` `$avg` `$min` `$max` `$push` `$first` `$last
 
 **Counting items per group** uses `$count`. The MongoDB idiom `{"$sum": 1}` is also accepted (rewritten to `{"$count": 1}` automatically). Both forms produce the same result. `$sum` with a string operand still computes the sum of that field, e.g. `{"$sum": "$amount"}`.
 
+### Mongo-style aliases (v0.3.0+)
+
+To reduce friction with models trained on MongoDB conventions:
+
+- **Empty string is empty filter**: `db users find ''` is equivalent to `db users find '{}'`. Same for count/remove/update.
+- **`find` accepts an options object as second positional**: `db users find '{}' '{"sort":{"age":-1},"limit":10}'` works alongside the flag form `db users find '{}' --sort age:-1 --limit 10`. When both are present, flags win.
+- **`db <coll> export` / `db <coll> import`**: dump/restore documents as a JSON array — symmetric with `vec export` / `vec import`. Useful for backup, migration between collections, or syncing test fixtures.
+
 `$lookup` syntax:
 
 ```json

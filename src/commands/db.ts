@@ -12,7 +12,13 @@ import {
   removeHandler,
   updateHandler,
 } from "./db/crud.js";
-import { dropHandler, indexHandler, statsHandler } from "./db/meta.js";
+import {
+  dropHandler,
+  exportHandler,
+  importHandler,
+  indexHandler,
+  statsHandler,
+} from "./db/meta.js";
 import { ensureSingleStdinDash } from "./db/shared.js";
 
 const FLAG_SPEC = {
@@ -88,6 +94,13 @@ export const buildDbCommand = (provide: RegistryProvider): Command =>
             break;
           case "stats":
             result = await statsHandler(reg, ctx, parsed, coll);
+            break;
+          case "export":
+            result = await exportHandler(reg, ctx, parsed, coll);
+            break;
+          case "import":
+            result = await importHandler(reg, ctx, parsed, coll);
+            mutated = true;
             break;
           default:
             throw new CommandError(EXIT.USAGE, `unknown subcommand: db <coll> ${sub}`);

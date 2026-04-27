@@ -33,8 +33,10 @@ Auth token, when required, is read from `ctx.env.get("AUTH_TOKEN")` or the flag 
 - stdout: `{ "_id": "<id>" }`
 - exit: 0 ok | 2 bad json | 4 auth | 5 schema/index violation
 
-### `db <coll> find <query-json> [--sort <field>:<1|-1>] [--limit N] [--skip N] [--project <fields-csv>]`
+### `db <coll> find <query-json> [<options-json>] [--sort <field>:<1|-1>] [--limit N] [--skip N] [--project <fields-csv>]`
 - Mongo-style query operators per js-doc-store.
+- Optional second positional: a Mongo-style options object `{sort, limit, skip, project}`. If both flags and the options object are present, flags win.
+- Empty string `''` is treated as the empty filter `'{}'` (matches all).
 - stdout: JSON array of matched docs.
 - exit: 0 ok | 2 bad query json | 3 collection missing
 
@@ -80,6 +82,17 @@ Auth token, when required, is read from `ctx.env.get("AUTH_TOKEN")` or the flag 
 ### `db <coll> stats`
 - stdout: `{ "count": N, "indexes": [...], "sizeBytes": N }`
 - exit: 0 | 3
+
+### `db <coll> export`
+- Returns all documents in the collection.
+- stdout: `{ "exported": N, "docs": [...] }`
+- exit: 0 | 3
+
+### `db <coll> import <docs-json>`
+- Inserts an array of documents into the collection. Accepts `-` to read from stdin.
+- Auth: requires valid token if `authSecret` is configured.
+- stdout: `{ "imported": N }`
+- exit: 0 | 2 | 4 | 5
 
 ### Auth subcommands
 

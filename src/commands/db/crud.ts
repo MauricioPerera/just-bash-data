@@ -38,24 +38,30 @@ const buildCursor = (
   coll: string,
   filter: Record<string, unknown>,
   parsed: ParsedArgs,
+  options: Record<string, unknown> | null = null,
 ): unknown[] => {
   let cursor = reg.getDocStore().collection(coll).find(filter);
-  const sort = flagString(parsed.flags, "sort");
-  if (sort) {
-    const [field, dir] = sort.split(":");
+  // Sort: --sort flag takes precedence; fall back to options.sort (Mongo-style)
+  const sortFlag = flagString(parsed.flags, "sort");
+  if (sortFlag) {
+    const [field, dir] = sortFlag.split(":");
     if (!field) throw new CommandError(EXIT.USAGE, "invalid --sort");
     const order: 1 | -1 = dir === "-1" ? -1 : 1;
     cursor = cursor.sort({ [field]: order });
+  } else if (options && isFilter(options["sort"])) {
+    cursor = cursor.sort(options["sort"] as Record<string, 1 | -1>);
   }
-  const skip = flagString(parsed.flags, "skip");
+  const skip = flagString(parsed.flags, "skip") ?? (typeof options?.["skip"] === "number" ? String(options["skip"]) : undefined);
   if (skip) cursor = cursor.skip(Number(skip));
-  const limit = flagString(parsed.flags, "limit");
+  const limit = flagString(parsed.flags, "limit") ?? (typeof options?.["limit"] === "number" ? String(options["limit"]) : undefined);
   if (limit) cursor = cursor.limit(Number(limit));
-  const project = flagString(parsed.flags, "project");
-  if (project) {
+  const projectFlag = flagString(parsed.flags, "project");
+  if (projectFlag) {
     const spec: Record<string, 1> = {};
-    for (const f of project.split(",")) spec[f.trim()] = 1;
+    for (const f of projectFlag.split(",")) spec[f.trim()] = 1;
     cursor = cursor.project(spec);
+  } else if (options && isFilter(options["project"])) {
+    cursor = cursor.project(options["project"] as Record<string, 0 | 1>);
   }
   return cursor.toArray();
 };
@@ -71,7 +77,15 @@ export const findHandler = async (
   if (!isFilter(filter)) {
     throw new CommandError(EXIT.USAGE, "filter must be an object");
   }
-  const docs = buildCursor(reg, coll, filter, parsed);
+  // Mongo alias: optional second positional as options object {sort, limit, skip, project}.
+  // Several models emit `find filter options` instead of `find filter --sort field:1`.
+  let options: Record<string, unknown> | null = null;
+  const optionsArg = parsed.positional[3];
+  if (optionsArg !== undefined) {
+    const parsedOpts = parseJson(optionsArg, ctx, "options");
+    if (isFilter(parsedOpts)) options = parsedOpts;
+  }
+  const docs = buildCursor(reg, coll, filter, parsed, options);
   return { stdout: JSON.stringify(docs) };
 };
 
