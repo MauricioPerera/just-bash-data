@@ -1,0 +1,1 @@
+["db books aggregate '[{\"$group\":{\"_id\":\"$genre\",\"count\":{\"$count\":1}}}]'"]
