@@ -280,7 +280,26 @@ Behaviour:
 
 This was the **single error that not one model avoided cleanly**. **Fixed in v0.2.0**: `aggregateHandler` now rewrites `{"$sum": <number>}` to `{"$count": 1}` automatically. The MongoDB idiom every model defaulted to is now native syntax. `$sum` with a string operand (`{"$sum": "$amount"}`) still computes the field sum unchanged.
 
-Effect on the benchmark: Llama 3.2 11B-V should reach 7/7 with this alias (its only blocker was `$sum:1`). The other 5 completing models would shave 1 turn (no longer needing the correction round).
+### Empirical verification — re-runs against v0.2.0
+
+Three models from the original benchmark were re-tested with identical system prompt and task:
+
+| Model | v0.1.0 (before alias) | v0.2.0 (with alias) | Improvement |
+|---|---|---|---|
+| **Llama 3.2 11B-V** | 6/7 incomplete, 5 turns, 71% cmd success | **7/7 complete**, 2 turns effective, 100% | incomplete → complete |
+| **GPT-OSS-20B** | 7/7, 2 turns, 92% | 7/7, **1 turn**, 100% | -1 turn, +8 pp precision |
+| **Granite 4.0** | 7/7, 3 turns, 81% | 7/7, **1 turn**, 100% | -2 turns, +19 pp precision |
+
+In each case the model emitted `{"$sum": 1}` exactly as before — the model behaviour is unchanged at temperature 0.1. What changed is the plugin's response: instead of `path.includes is not a function` (exit 1), the aggregate now returns the correct counts.
+
+Verbatim turn transcripts of the v0.2.0 retests live at:
+```
+v2-llama11bv-turn1-cmds.json … turn2-cmds.json
+v2-gptoss-turn1-cmds.json
+v2-granite-turn1-cmds.json
+```
+
+The alias delivered exactly the predicted effect: the blocked model now completes, and the previously-completing models finish in fewer turns. Net cost reduction estimated ~30-50% per task across the benchmark.
 
 ## Frontier ranking — cost × reliability × context × latency
 
