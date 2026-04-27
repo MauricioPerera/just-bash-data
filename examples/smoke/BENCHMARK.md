@@ -2,6 +2,12 @@
 
 Comparison of 8 Cloudflare Workers AI models (5 instruction-tuned + 2 reasoning + 1 MoE) acting as autonomous agents that drive the `db` command. The orchestrator (a fixed JS script) is a dumb pipe: it does no interpretation, error correction, or syntax fix-up. The model alone decides every command emitted.
 
+**Plugin versions covered:**
+- v0.1.0 baseline (initial release, no model-friendly aliases)
+- v0.2.0 added the `{"$sum": 1}` → `{"$count": 1}` alias (cut cost ~32%)
+- v0.3.0 added empty-filter `''` alias, Mongo-style `find` options object, and `db <coll> export/import` (cut cost another ~13% and unlocked a previously-blocked model)
+- v0.3.1 hardening: per-handler empty-string policy preventing accidental mass-mutation (no cost change, safety win — see "v0.3.1 hardening" section below)
+
 ## Test methodology
 
 ### The task
@@ -298,6 +304,41 @@ v2-llama11bv-turn1-cmds.json … turn2-cmds.json
 v2-gptoss-turn1-cmds.json
 v2-granite-turn1-cmds.json
 ```
+
+### v0.3.1 hardening: per-handler empty-string policy
+
+After the v0.3.0 release a code review surfaced a latent bug in the `''` empty-filter alias. The blanket "`''` → `{}`" rewrite inside `parseJson` was applied universally, producing inconsistent and dangerous behavior on the destructive handlers:
+
+| Command | v0.3.0 behavior |
+|---|---|
+| `db users insert ''` | silently created an empty doc `{_id: <gen>}` |
+| `db users remove ''` | silently removed the first matching doc |
+| `db users update '' '...'` | silently updated all matching docs |
+| `db users aggregate ''` | failed (`{}` is not an array) |
+| `db users find '' / count ''` | worked correctly (match-all) |
+
+A model typo could mass-mutate a collection without warning.
+
+**v0.3.1 fix**: `parseJson` is now policy-aware. Each handler opts into one of three policies:
+
+| Policy | `''` handling | Used by |
+|---|---|---|
+| `filter` | becomes `{}` | `find`, `count` |
+| `pipeline` | becomes `[]` (no-op) | `aggregate` |
+| `reject` | exit 2 with `<field> cannot be empty` | `insert`, `update` (both args), `remove`, `import`, `find` options object |
+
+Read paths unchanged from v0.3.0; destructive paths require the explicit `'{}'` form.
+
+#### Why this matters for agent benchmarks
+
+In the benchmark transcripts, only Llama 3.2 11B-V emitted `''` (and only for `count` and `find` — read-only operations that still work). No model in the benchmark used `''` for destructive ops. The fix removes a footgun without breaking any observed agent behaviour.
+
+If a future agent emits `db users remove ''` thinking "remove nothing" or "remove everything matching", they get an explicit error pointing at the right syntax instead of an ambiguous mass-mutation.
+
+#### Bonus polishing in v0.3.1
+
+- `importHandler` now reports the failing item index (`import item at index 847 is not an object`) — DX win for batches of 1000+ docs where one is malformed.
+- `buildCursor` cleaned up a redundant `number → string → number` roundtrip when reading skip/limit from the options object.
 
 ### Cost reduction analysis (v0.1.0 → v0.2.0)
 
