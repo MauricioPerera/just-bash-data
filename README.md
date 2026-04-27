@@ -10,7 +10,7 @@ A plugin for [`just-bash`](https://github.com/vercel-labs/just-bash) that gives 
 
 Both share a single in-memory state hydrated from `IFileSystem` on first use and atomically flushed back after every mutating command.
 
-> **Benchmark**: 8 Cloudflare Workers AI models (Granite 4.0, Llama 3.1/3.2 8B family, Llama 4 Scout MoE, GPT-OSS-20B, Gemma 4 26B) tested as agents driving the `db` command. **Granite wins on cost** ($0.000107/task, 7/7 completion). **GPT-OSS-20B wins on turns** (2 turns to DONE, 92% precision). **Gemma 4 wins on precision** (100%, zero retries, 16× the cost). Full report with cost analysis, context window comparison, and per-model behaviour notes: [examples/smoke/BENCHMARK.md](examples/smoke/BENCHMARK.md).
+> **Benchmark**: 8 Cloudflare Workers AI models (Granite 4.0, Llama 3.1/3.2 8B family, Llama 4 Scout MoE, GPT-OSS-20B, Gemma 4 26B) tested as agents driving the `db` command. **Granite wins on cost** ($0.000107/task, 7/7 completion). **GPT-OSS-20B wins on turns** (2 turns to DONE, 92% precision). **Gemma 4 wins on precision** (100%, zero retries, 16× the cost). Three permissive-parsing fixes (v0.2.0 → v0.3.1) cut total cost by **41%** vs v0.1.0 with zero breaking changes. Full report with cost analysis, context window comparison, and per-model behaviour notes: [examples/smoke/BENCHMARK.md](examples/smoke/BENCHMARK.md).
 
 ## Install
 
