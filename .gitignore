@@ -3,6 +3,8 @@ dist
 coverage
 *.log
 *.tgz
+examples/smoke/agent-data/
+examples/smoke/cmds.json
 .DS_Store
 .vscode
 .idea

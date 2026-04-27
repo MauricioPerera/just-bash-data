@@ -1,0 +1,1 @@
+["db books count { \"genre\": \"scifi\" }","db books find { \"year\": { \"$gt\": 1950 } } --sort year --descending","db books update { \"title\": \"Foundation\" } { $set: { year: 1942 } } --many","db books aggregate [{ $group: { _id: \"$genre\", count: { $sum: 1 } } }]"]

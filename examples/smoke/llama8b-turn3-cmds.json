@@ -1,0 +1,1 @@
+["update \"title=Foundation\" $set={\"year\":1942}","aggregate [{\"$match\":{\"title\":\"Foundation\"}}, {\"$set\":{\"year\":1942}}]","aggregate [{\"$match\":{\"title\":\"1984\"}}, {\"$unset\":{}}]","count","find year:1"]

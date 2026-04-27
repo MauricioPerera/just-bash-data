@@ -1,0 +1,1 @@
+["db.books.find('{\"year\":{\"$gt\":1950}}' --sort year:-1)","db.books.aggregate([{\"$group\":{\"_id\":\"$genre\",\"count\":{\"$sum\":1}}}])"]

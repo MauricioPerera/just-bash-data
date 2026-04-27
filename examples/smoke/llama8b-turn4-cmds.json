@@ -1,0 +1,1 @@
+["db books update '{\"title\":\"Foundation\"}' '{\"$set\":{\"year\":1942}}'","db books aggregate '[{\"$group\":{\"_id\":\"$genre\",\"count\":{\"$count\":1}}}]'","db books remove '{\"title\":\"1984\"}'","db books count '{}'","db books find '{}' --sort year:1"]
