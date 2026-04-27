@@ -360,6 +360,69 @@ The alias is **5 lines of production code** in `src/commands/db/crud.ts` plus 12
 
 The plugin patch wins by 5× over the model-switch alternative and infinity-times over documentation.
 
+### v0.3.0 update — three more aliases
+
+After the v0.2.0 release, three additional permissive-parsing refinements landed (see [v0.3.0 release notes](https://github.com/MauricioPerera/just-bash-data/releases/tag/v0.3.0)):
+
+- **A1**: empty-string `''` treated as `'{}'` empty filter
+- **A2**: `find` accepts a Mongo-style options object as second positional `{sort, limit, skip, project}`
+- **B1+B2**: `db <coll> export` / `db <coll> import` symmetric with `vec`
+
+Re-running the same 3 models against v0.3.0 with identical prompts:
+
+| Model | Behaviour change in v0.3.0 | Trigger that fired |
+|---|---|---|
+| Granite 4.0 | cmd 7 now sorts (was silently unsorted in v0.2.0 because the model emitted options object) | A2 |
+| GPT-OSS-20B | no change (uses flag form, neither `''` nor options object) | none |
+| Llama 3.2 11B-V | cmds 11+12 now succeed (model emitted `count ''` and `find '' --sort year:1`) | A1 |
+
+#### v0.3.0 token consumption per task (1 turn each)
+
+| Model | Input | Output | Total | $ per task |
+|---|---:|---:|---:|---:|
+| Granite 4.0-h-micro | 450 | 442 | 892 | $0.0000563 |
+| GPT-OSS-20B | 699 | 691 | 1 390 | $0.000347 |
+| Llama 3.2 11B-V | 555 | 314 | 869 | $0.000241 |
+| **Sum** | 1 704 | 1 447 | 3 151 | **$0.000644** |
+
+#### Cumulative cost reduction (3 models combined)
+
+| Version | $ per task (3 models) | Δ vs v0.1.0 | Δ vs prior |
+|---|---:|---:|---:|
+| v0.1.0 | $0.001087 | baseline | — |
+| v0.2.0 | $0.000741 | **-32%** | -32% |
+| **v0.3.0** | **$0.000644** | **-41%** | -13% |
+
+#### Annual extrapolation at 100K tasks/day
+
+| Version | Daily | Annual |
+|---|---:|---:|
+| v0.1.0 | $108.70 | $39 676 |
+| v0.2.0 | $74.10 | $27 047 |
+| **v0.3.0** | **$64.40** | **$23 506** |
+
+**Cumulative savings v0.1.0 → v0.3.0: ~$16 170/year** across the 3 retested models. The remaining 5 models in the benchmark would compound further.
+
+#### Diminishing returns analysis
+
+v0.2.0's `$sum:1` alias delivered 32% reduction (the dominant fix — every model defaulted to it). v0.3.0's three additional aliases delivered another 13% by cumulatively addressing model-specific patterns:
+
+- A1 (empty filter `''`): only fired for Llama 3.2 11B-V in this benchmark (1 of 3 models, 2 of 12 commands)
+- A2 (options object): only fired for Granite (1 of 3 models, 1 of 12 commands)
+- B1+B2 (export/import): not exercised by the agent task itself; available for backup workflows
+
+Each subsequent alias hits a smaller subset of model-specific patterns. The marginal ROI is decreasing, which suggests v0.3.0 is near the natural floor for this kind of permissive-parsing optimization. Further improvements would need to target either:
+- Lenient JSON parsing (catch JS-object-literal patterns like `{$gt: 1950}`) — high blast radius
+- Model-specific prompts/few-shots — moves cost from plugin to prompt budget
+- Better models — pays per token forever vs one-time plugin patch
+
+Verbatim turn transcripts of the v0.3.0 retests live at:
+```
+v3-granite-turn1-cmds.json
+v3-gptoss-turn1-cmds.json
+v3-llama11bv-turn1-cmds.json
+```
+
 ## Frontier ranking — cost × reliability × context × latency
 
 Weighting all four dimensions: total $ per task, completion rate, context-window headroom, and turns to DONE.
