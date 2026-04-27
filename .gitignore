@@ -1,0 +1,8 @@
+node_modules
+dist
+coverage
+*.log
+*.tgz
+.DS_Store
+.vscode
+.idea
