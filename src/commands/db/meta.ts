@@ -112,13 +112,16 @@ export const importHandler = async (
 ): Promise<{ stdout: string }> => {
   await requireAuth(reg, ctx, parsed);
   const arg = parsed.positional[2];
-  const data = parseJson(arg, ctx, "import data");
+  const data = parseJson(arg, ctx, "import data", "reject");
   if (!Array.isArray(data)) {
     throw new CommandError(EXIT.USAGE, "import expects an array of documents");
   }
-  for (const item of data) {
-    if (!isFilter(item)) {
-      throw new CommandError(EXIT.USAGE, "every import item must be an object");
+  for (let i = 0; i < data.length; i++) {
+    if (!isFilter(data[i])) {
+      throw new CommandError(
+        EXIT.USAGE,
+        `import item at index ${i} is not an object`,
+      );
     }
   }
   reg.getDocStore().collection(coll).import(data as Record<string, unknown>[]);

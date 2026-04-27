@@ -324,6 +324,86 @@ describe("db v0.3.0 export / import roundtrip", () => {
     const r = await h.run(["x", "import", '[{"ok":true}, "string"]']);
     expect(r.exitCode).toBe(2);
   });
+
+  it("import error message includes the failing item index", async () => {
+    const r = await h.run(["x", "import", '[{"ok":true}, "bad", {"also":"ok"}]']);
+    expect(r.exitCode).toBe(2);
+    expect(r.stderr).toMatch(/index 1/);
+  });
+
+  it("export of empty collection returns empty array", async () => {
+    await h.run(["empty", "insert", '{"_id":"a"}']);
+    await h.run(["empty", "remove", '{"_id":"a"}']);
+    const r = okJson<{ exported: number; docs: unknown[] }>(
+      await h.run(["empty", "export"]),
+    );
+    expect(r.exported).toBe(0);
+    expect(r.docs).toEqual([]);
+  });
+});
+
+describe("v0.3.1 H-3: per-handler empty-string policy", () => {
+  let h: Harness;
+  beforeEach(() => {
+    h = buildHarness();
+  });
+
+  it("find/count accept '' as empty filter (read-only)", async () => {
+    await h.run(["x", "insert", '{"a":1}']);
+    await h.run(["x", "insert", '{"a":2}']);
+    expect(okJson<unknown[]>(await h.run(["x", "find", ""])).length).toBe(2);
+    expect(okJson<{ count: number }>(await h.run(["x", "count", ""])).count).toBe(2);
+  });
+
+  it("remove rejects '' filter (forces explicit {})", async () => {
+    await h.run(["x", "insert", '{"a":1}']);
+    const r = await h.run(["x", "remove", ""]);
+    expect(r.exitCode).toBe(2);
+    expect(r.stderr).toMatch(/cannot be empty/);
+    expect(okJson<{ count: number }>(await h.run(["x", "count", ""])).count).toBe(1);
+  });
+
+  it("update rejects '' filter (forces explicit {})", async () => {
+    await h.run(["x", "insert", '{"a":1}']);
+    const r = await h.run(["x", "update", "", '{"$set":{"b":2}}']);
+    expect(r.exitCode).toBe(2);
+    expect(r.stderr).toMatch(/filter cannot be empty/);
+  });
+
+  it("update rejects '' update spec", async () => {
+    await h.run(["x", "insert", '{"a":1}']);
+    const r = await h.run(["x", "update", '{"a":1}', ""]);
+    expect(r.exitCode).toBe(2);
+    expect(r.stderr).toMatch(/update cannot be empty/);
+  });
+
+  it("insert rejects '' document (no silent empty inserts)", async () => {
+    const r = await h.run(["x", "insert", ""]);
+    expect(r.exitCode).toBe(2);
+    expect(r.stderr).toMatch(/document cannot be empty/);
+  });
+
+  it("import rejects '' payload", async () => {
+    const r = await h.run(["x", "import", ""]);
+    expect(r.exitCode).toBe(2);
+    expect(r.stderr).toMatch(/cannot be empty/);
+  });
+
+  it("aggregate '' returns the original docs (empty pipeline = no-op)", async () => {
+    await h.run(["x", "insert", '{"a":1}']);
+    await h.run(["x", "insert", '{"a":2}']);
+    const r = okJson<unknown[]>(await h.run(["x", "aggregate", ""]));
+    expect(r.length).toBe(2);
+  });
+
+  it("explicit '{}' still works for destructive handlers", async () => {
+    await h.run(["x", "insert", '{"a":1}']);
+    await h.run(["x", "insert", '{"a":2}']);
+    const r = okJson<{ removed: number }>(
+      await h.run(["x", "remove", "{}", "--many"]),
+    );
+    expect(r.removed).toBe(2);
+  });
 });
 
 describe("db indexes", () => {

@@ -17,7 +17,8 @@ export const insertHandler = async (
 ): Promise<{ stdout: string }> => {
   await requireAuth(reg, ctx, parsed);
   const docArg = parsed.positional[2];
-  const doc = parseJson(docArg, ctx, "document");
+  // Empty doc '' is rejected — inserting an empty {} is almost always a model error.
+  const doc = parseJson(docArg, ctx, "document", "reject");
   if (!isFilter(doc)) {
     throw new CommandError(EXIT.USAGE, "document must be an object");
   }
@@ -51,10 +52,22 @@ const buildCursor = (
   } else if (options && isFilter(options["sort"])) {
     cursor = cursor.sort(options["sort"] as Record<string, 1 | -1>);
   }
-  const skip = flagString(parsed.flags, "skip") ?? (typeof options?.["skip"] === "number" ? String(options["skip"]) : undefined);
-  if (skip) cursor = cursor.skip(Number(skip));
-  const limit = flagString(parsed.flags, "limit") ?? (typeof options?.["limit"] === "number" ? String(options["limit"]) : undefined);
-  if (limit) cursor = cursor.limit(Number(limit));
+  const skipFlag = flagString(parsed.flags, "skip");
+  const skipN: number | undefined =
+    skipFlag !== undefined
+      ? Number(skipFlag)
+      : typeof options?.["skip"] === "number"
+        ? (options["skip"] as number)
+        : undefined;
+  if (skipN !== undefined) cursor = cursor.skip(skipN);
+  const limitFlag = flagString(parsed.flags, "limit");
+  const limitN: number | undefined =
+    limitFlag !== undefined
+      ? Number(limitFlag)
+      : typeof options?.["limit"] === "number"
+        ? (options["limit"] as number)
+        : undefined;
+  if (limitN !== undefined) cursor = cursor.limit(limitN);
   const projectFlag = flagString(parsed.flags, "project");
   if (projectFlag) {
     const spec: Record<string, 1> = {};
@@ -73,7 +86,7 @@ export const findHandler = async (
   coll: string,
 ): Promise<{ stdout: string }> => {
   ensureCollExists(reg, coll);
-  const filter = parseJson(parsed.positional[2] ?? "{}", ctx, "filter");
+  const filter = parseJson(parsed.positional[2] ?? "{}", ctx, "filter", "filter");
   if (!isFilter(filter)) {
     throw new CommandError(EXIT.USAGE, "filter must be an object");
   }
@@ -82,7 +95,7 @@ export const findHandler = async (
   let options: Record<string, unknown> | null = null;
   const optionsArg = parsed.positional[3];
   if (optionsArg !== undefined) {
-    const parsedOpts = parseJson(optionsArg, ctx, "options");
+    const parsedOpts = parseJson(optionsArg, ctx, "options", "reject");
     if (isFilter(parsedOpts)) options = parsedOpts;
   }
   const docs = buildCursor(reg, coll, filter, parsed, options);
@@ -96,7 +109,7 @@ export const countHandler = async (
   coll: string,
 ): Promise<{ stdout: string }> => {
   ensureCollExists(reg, coll);
-  const filter = parseJson(parsed.positional[2] ?? "{}", _ctx, "filter");
+  const filter = parseJson(parsed.positional[2] ?? "{}", _ctx, "filter", "filter");
   if (!isFilter(filter)) {
     throw new CommandError(EXIT.USAGE, "filter must be an object");
   }
@@ -112,8 +125,9 @@ export const updateHandler = async (
 ): Promise<{ stdout: string }> => {
   await requireAuth(reg, ctx, parsed);
   ensureCollExists(reg, coll);
-  const filter = parseJson(parsed.positional[2], ctx, "filter");
-  const update = parseJson(parsed.positional[3], ctx, "update");
+  // Empty filter '' is rejected for destructive ops — agent must write '{}' explicitly.
+  const filter = parseJson(parsed.positional[2], ctx, "filter", "reject");
+  const update = parseJson(parsed.positional[3], ctx, "update", "reject");
   if (!isFilter(filter) || !isFilter(update)) {
     throw new CommandError(EXIT.USAGE, "filter and update must be objects");
   }
@@ -144,7 +158,8 @@ export const removeHandler = async (
 ): Promise<{ stdout: string }> => {
   await requireAuth(reg, ctx, parsed);
   ensureCollExists(reg, coll);
-  const filter = parseJson(parsed.positional[2], ctx, "filter");
+  // Empty filter '' is rejected for destructive ops — agent must write '{}' explicitly.
+  const filter = parseJson(parsed.positional[2], ctx, "filter", "reject");
   if (!isFilter(filter)) {
     throw new CommandError(EXIT.USAGE, "filter must be an object");
   }
@@ -161,7 +176,8 @@ export const aggregateHandler = async (
   coll: string,
 ): Promise<{ stdout: string }> => {
   ensureCollExists(reg, coll);
-  const pipeline = parseJson(parsed.positional[2], ctx, "pipeline");
+  // Empty pipeline '' is treated as [] (no-op stages).
+  const pipeline = parseJson(parsed.positional[2], ctx, "pipeline", "pipeline");
   if (!Array.isArray(pipeline)) {
     throw new CommandError(EXIT.USAGE, "pipeline must be an array");
   }

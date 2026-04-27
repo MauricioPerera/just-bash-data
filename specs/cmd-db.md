@@ -36,7 +36,7 @@ Auth token, when required, is read from `ctx.env.get("AUTH_TOKEN")` or the flag 
 ### `db <coll> find <query-json> [<options-json>] [--sort <field>:<1|-1>] [--limit N] [--skip N] [--project <fields-csv>]`
 - Mongo-style query operators per js-doc-store.
 - Optional second positional: a Mongo-style options object `{sort, limit, skip, project}`. If both flags and the options object are present, flags win.
-- Empty string `''` is treated as the empty filter `'{}'` (matches all).
+- Empty string `''` is treated as the empty filter `'{}'` (matches all). This alias only applies to read-only handlers (`find`, `count`, and `aggregate` where `''` becomes `'[]'`); destructive handlers (`remove`, `update`, `insert`, `import`) reject `''` and require an explicit `'{}'` / `'[]'`.
 - stdout: JSON array of matched docs.
 - exit: 0 ok | 2 bad query json | 3 collection missing
 

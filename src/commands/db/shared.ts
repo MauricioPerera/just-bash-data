@@ -3,18 +3,34 @@ import { CommandError, EXIT } from "../../lib/errors.js";
 import { flagString, type ParsedArgs } from "../../lib/args.js";
 import type { PluginRegistry } from "../../registry.js";
 
+/**
+ * Per-handler policy for the empty-string alias `''`:
+ * - "filter": treat `''` as `{}` (match-all). Read-only handlers (find/count) opt in.
+ * - "pipeline": treat `''` as `[]` (no-op pipeline). Aggregate handler opts in.
+ * - "reject" (default): refuse empty input. Used by destructive handlers
+ *   (remove/update) and content handlers (insert/import) where `''` is
+ *   ambiguous and likely a syntax error.
+ */
+export type EmptyPolicy = "filter" | "pipeline" | "reject";
+
 export const parseJson = (
   arg: string | undefined,
   ctx: CommandContext,
   fieldName: string,
+  emptyPolicy: EmptyPolicy = "reject",
 ): unknown => {
   if (arg === undefined) {
     throw new CommandError(EXIT.USAGE, `missing ${fieldName} argument`);
   }
   const text = arg === "-" ? ctx.stdin : arg;
-  // Mongo idiom alias: empty string is treated as empty filter "{}".
-  // Several models emit '' instead of '{}' to mean "no filter" / "match all".
-  if (text.trim() === "") return {};
+  if (text.trim() === "") {
+    if (emptyPolicy === "filter") return {};
+    if (emptyPolicy === "pipeline") return [];
+    throw new CommandError(
+      EXIT.USAGE,
+      `${fieldName} cannot be empty (use '{}' explicitly if you mean an empty object)`,
+    );
+  }
   try {
     return JSON.parse(text);
   } catch {
