@@ -2,7 +2,7 @@ import type { CommandContext } from "just-bash";
 import { flagBool, type ParsedArgs } from "../../lib/args.js";
 import { CommandError, EXIT } from "../../lib/errors.js";
 import type { PluginRegistry } from "../../registry.js";
-import { requireAuth, requireRole, resolveToken } from "./shared.js";
+import { requireRole, resolveToken } from "./shared.js";
 
 const requireAuthSecret = (reg: PluginRegistry): void => {
   if (!reg.opts.authSecret) {
