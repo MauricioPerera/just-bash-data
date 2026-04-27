@@ -1,4 +1,7 @@
-# `@local/just-bash-data`
+# `just-bash-data`
+
+[![CI](https://github.com/MauricioPerera/just-bash-data/actions/workflows/ci.yml/badge.svg)](https://github.com/MauricioPerera/just-bash-data/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 A plugin for [`just-bash`](https://github.com/vercel-labs/just-bash) that gives an in-shell agent two structured-data commands:
 
@@ -10,7 +13,11 @@ Both share a single in-memory state hydrated from `IFileSystem` on first use and
 ## Install
 
 ```bash
-npm i @local/just-bash-data just-bash
+# From npm (when published)
+npm i just-bash-data just-bash
+
+# Directly from GitHub
+npm i github:MauricioPerera/just-bash-data just-bash
 ```
 
 The plugin pulls `js-doc-store` and `js-vector-store` from GitHub directly (neither is published to npm).
@@ -19,7 +26,7 @@ The plugin pulls `js-doc-store` and `js-vector-store` from GitHub directly (neit
 
 ```typescript
 import { Bash, InMemoryFs } from "just-bash";
-import { createDataPlugin } from "@local/just-bash-data";
+import { createDataPlugin } from "just-bash-data";
 
 const bash = new Bash({
   fs: new InMemoryFs({}),
@@ -249,6 +256,8 @@ vec search-across "faq,tickets,docs" "$EMB" --k 10
 const fs = new InMemoryFs({});
 const opts = { encryptionKey: "k", authSecret: "s" };
 
+import { createDataPlugin } from "just-bash-data";
+
 // Shell 1
 const bash1 = new Bash({ fs, customCommands: createDataPlugin(opts) });
 await bash1.exec(`db notes insert '{"secret":"value"}'`);
@@ -276,7 +285,12 @@ pnpm build         # ESM + CJS + .d.ts via tsup
 pnpm pack          # produces local-just-bash-data-0.0.0.tgz
 ```
 
-A full E2E smoke against the packed tarball lives at `../just-bash-data-smoke/smoke-full.mjs` (181 assertions across every subcommand, every operator, every exit code, plus encryption and cross-instance persistence).
+A full E2E smoke lives at `examples/smoke/` (181 assertions across every subcommand, every operator, every exit code, plus encryption and cross-instance persistence).
+
+```bash
+pnpm install
+pnpm smoke         # builds + runs the full E2E
+```
 
 ## License
 

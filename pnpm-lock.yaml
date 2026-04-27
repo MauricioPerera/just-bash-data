@@ -40,6 +40,15 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.19.17)
 
+  examples/smoke:
+    dependencies:
+      just-bash:
+        specifier: ^2.14.3
+        version: 2.14.3
+      just-bash-data:
+        specifier: workspace:*
+        version: link:../..
+
 packages:
 
   '@borewit/text-codec@0.2.2':

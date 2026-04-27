@@ -1,7 +1,29 @@
 {
-  "name": "@local/just-bash-data",
-  "version": "0.0.0",
-  "private": true,
+  "name": "just-bash-data",
+  "version": "0.1.0",
+  "description": "just-bash plugin: db (MongoDB-style document store) and vec (vector similarity search) commands for in-shell agents.",
+  "license": "MIT",
+  "author": "Mauricio Perera",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MauricioPerera/just-bash-data.git"
+  },
+  "homepage": "https://github.com/MauricioPerera/just-bash-data#readme",
+  "bugs": {
+    "url": "https://github.com/MauricioPerera/just-bash-data/issues"
+  },
+  "keywords": [
+    "just-bash",
+    "llm-tools",
+    "rag",
+    "vector-search",
+    "document-database",
+    "mongodb-style",
+    "jwt",
+    "rbac",
+    "encryption",
+    "agent-shell"
+  ],
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -19,7 +41,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "smoke": "pnpm build && pnpm --filter just-bash-data-smoke smoke:full"
   },
   "dependencies": {
     "js-doc-store": "github:MauricioPerera/js-doc-store",
