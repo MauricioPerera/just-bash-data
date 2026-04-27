@@ -85,6 +85,8 @@ Pipeline stages: `$match` `$lookup` `$group` `$sort` `$limit` `$skip` `$project`
 
 Group accumulators: `$count` `$sum` `$avg` `$min` `$max` `$push` `$first` `$last`.
 
+**Counting items per group** uses `$count`. The MongoDB idiom `{"$sum": 1}` is also accepted (rewritten to `{"$count": 1}` automatically). Both forms produce the same result. `$sum` with a string operand still computes the sum of that field, e.g. `{"$sum": "$amount"}`.
+
 `$lookup` syntax:
 
 ```json

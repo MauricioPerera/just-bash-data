@@ -278,11 +278,9 @@ Behaviour:
 | Llama 4 Scout 17B-16E | no | 1 round (but emitted with backslash-escapes that broke JSON; needed a 2nd verbatim-copy round) |
 | **Gemma 4 26B-a4b** | **yes** | **no regression — held the pattern across all turns** |
 
-This is the **single error that not one model avoided cleanly**. The cheapest spec change to remove agent friction is:
+This was the **single error that not one model avoided cleanly**. **Fixed in v0.2.0**: `aggregateHandler` now rewrites `{"$sum": <number>}` to `{"$count": 1}` automatically. The MongoDB idiom every model defaulted to is now native syntax. `$sum` with a string operand (`{"$sum": "$amount"}`) still computes the field sum unchanged.
 
-> **Implement `$sum: 1` as an alias of `$count: 1` in `aggregateHandler`**.
-
-It would cost ~5 lines in `src/commands/db/crud.ts` and immediately bring most of the benchmark to 7/7 in 1-2 turns.
+Effect on the benchmark: Llama 3.2 11B-V should reach 7/7 with this alias (its only blocker was `$sum:1`). The other 5 completing models would shave 1 turn (no longer needing the correction round).
 
 ## Frontier ranking — cost × reliability × context × latency
 

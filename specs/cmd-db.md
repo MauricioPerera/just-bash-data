@@ -52,6 +52,9 @@ Auth token, when required, is read from `ctx.env.get("AUTH_TOKEN")` or the flag 
 - exit: 0 | 2 | 4
 
 ### `db <coll> aggregate <pipeline-json>`
+- Pipeline stages: `$match` `$lookup` `$group` `$sort` `$limit` `$skip` `$project` `$unwind`.
+- Group accumulators: `$count` `$sum` `$avg` `$min` `$max` `$push` `$first` `$last`.
+- **Mongo alias**: `{"$sum": <number>}` is rewritten to `{"$count": 1}` automatically (counts items per group). The MongoDB idiom `{"$sum": 1}` works as expected. `$sum` with a string operand (e.g. `{"$sum": "$amount"}`) still sums the numeric field.
 - stdout: JSON array.
 - exit: 0 | 2 | 3
 

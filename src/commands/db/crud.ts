@@ -185,6 +185,15 @@ export const aggregateHandler = async (
           if (!isFilter(accDef)) continue;
           const out: Record<string, unknown> = {};
           for (const [opName, opVal] of Object.entries(accDef)) {
+            // Mongo idiom alias: {"$sum": <number>} means "count items per group"
+            // (each doc contributes the numeric value, with 1 being the canonical
+            // form). Upstream doc-store's $sum expects a string field path, so
+            // {"$sum": 1} crashes with "path.includes is not a function". Rewrite
+            // the well-known counting idiom to the upstream-native $count.
+            if (opName === "$sum" && typeof opVal !== "string") {
+              out["$count"] = 1;
+              continue;
+            }
             out[opName] =
               typeof opVal === "string" && opVal.startsWith("$")
                 ? opVal.slice(1)

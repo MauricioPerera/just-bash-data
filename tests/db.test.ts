@@ -173,6 +173,42 @@ describe("db CRUD", () => {
     expect(arr[0]?.total).toBe(30);
     expect(arr[0]?._id).toBe("paid");
   });
+
+  it("aggregate Mongo idiom: {$sum: 1} treated as {$count: 1} (count items per group)", async () => {
+    const h = buildHarness();
+    await h.run(["b", "insert", '{"genre":"scifi","y":1965}']);
+    await h.run(["b", "insert", '{"genre":"scifi","y":1951}']);
+    await h.run(["b", "insert", '{"genre":"dystopia","y":1949}']);
+    await h.run(["b", "insert", '{"genre":"dystopia","y":1932}']);
+    await h.run(["b", "insert", '{"genre":"fantasy","y":1937}']);
+
+    const r = await h.run([
+      "b",
+      "aggregate",
+      JSON.stringify([
+        { $group: { _id: "$genre", count: { $sum: 1 } } },
+      ]),
+    ]);
+    const arr = okJson<Array<{ _id: string; count: number }>>(r);
+    const byId = Object.fromEntries(arr.map((x) => [x._id, x.count]));
+    expect(byId).toEqual({ scifi: 2, dystopia: 2, fantasy: 1 });
+  });
+
+  it("aggregate: {$sum: '$field'} still sums field values (alias only fires for non-string)", async () => {
+    const h = buildHarness();
+    await h.run(["o", "insert", '{"amt":10}']);
+    await h.run(["o", "insert", '{"amt":20}']);
+    await h.run(["o", "insert", '{"amt":7}']);
+
+    // String operand → real $sum semantics (sum of values, not count)
+    const r = await h.run([
+      "o",
+      "aggregate",
+      JSON.stringify([{ $group: { _id: null, total: { $sum: "$amt" } } }]),
+    ]);
+    const arr = okJson<Array<{ total: number }>>(r);
+    expect(arr[0]?.total).toBe(37);
+  });
 });
 
 describe("db indexes", () => {
