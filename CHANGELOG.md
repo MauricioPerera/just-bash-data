@@ -2,6 +2,27 @@
 
 All notable changes to `just-bash-data` are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] — 2026-04-28
+
+### Added
+
+- **`vec stats <coll>` now reports storage size.** New fields:
+  - `sizeBytes`: total on-disk footprint (bin + meta JSON)
+  - `binBytes`: vector blob size (varies with quantization — float32 ≈ 4× int8)
+  - `metaBytes`: per-collection manifest JSON size
+
+  Computed from the in-memory adapter snapshot, so the figures match exactly what `vec export` would persist. Useful for capacity planning and observability.
+
+- 2 new tests verifying the size fields and the quantization scaling property (int8 < float32 bin size).
+
+### Verified
+
+- The `examples/smoke/embeddinggemma-demo.mjs` script was empirically validated against the live `@cf/google/embeddinggemma-300m` endpoint. Cross-lingual semantic search and matryoshka prefix property both confirmed (full results in `examples/smoke/embeddinggemma-demo.md`).
+
+### Compatibility
+
+Zero breaking changes — `vec stats` output gained new fields; existing fields (`dim`, `count`, `quantize`, `metric`) unchanged in name or type.
+
 ## [0.3.1] — 2026-04-28
 
 ### Fixed

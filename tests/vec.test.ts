@@ -202,6 +202,40 @@ describe("vec stats / drop", () => {
     okJson(await h.run(["drop", "x"]));
     expect((await h.run(["stats", "x"])).exitCode).toBe(3);
   });
+
+  it("v0.4.0: stats includes sizeBytes (binBytes + metaBytes)", async () => {
+    const h = buildHarness();
+    okJson(await h.run(["create", "x", "--dim", "4"]));
+    okJson(await h.run(["store", "x", "a", "[1,2,3,4]"]));
+    okJson(await h.run(["store", "x", "b", "[5,6,7,8]"]));
+
+    const s = okJson<{
+      sizeBytes: number;
+      binBytes: number;
+      metaBytes: number;
+      count: number;
+      dim: number;
+    }>(await h.run(["stats", "x"]));
+
+    // 2 vectors × 4 dims × 4 bytes (float32) = 32 bytes minimum for the bin
+    expect(s.binBytes).toBeGreaterThanOrEqual(32);
+    expect(s.metaBytes).toBeGreaterThan(0);
+    expect(s.sizeBytes).toBe(s.binBytes + s.metaBytes);
+  });
+
+  it("v0.4.0: stats sizeBytes scales with quantization", async () => {
+    const h = buildHarness();
+    okJson(await h.run(["create", "f32", "--dim", "16"]));
+    okJson(await h.run(["create", "i8", "--dim", "16", "--quantize", "int8"]));
+    for (const v of ["[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]", "[16,15,14,13,12,11,10,9,8,7,6,5,4,3,2,1]"]) {
+      okJson(await h.run(["store", "f32", String(Math.random()), v]));
+      okJson(await h.run(["store", "i8", String(Math.random()), v]));
+    }
+    const f32Stats = okJson<{ binBytes: number }>(await h.run(["stats", "f32"]));
+    const i8Stats = okJson<{ binBytes: number }>(await h.run(["stats", "i8"]));
+    // int8 should be ~4× smaller than float32 for the bin payload
+    expect(i8Stats.binBytes).toBeLessThan(f32Stats.binBytes);
+  });
 });
 
 describe("vec persistence across registries (rehydrate)", () => {

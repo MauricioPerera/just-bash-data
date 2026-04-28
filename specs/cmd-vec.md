@@ -60,7 +60,9 @@ Vectors are passed as JSON arrays of finite numbers. `-` reads from `ctx.stdin`.
 - exit: 0 | 3
 
 ### `vec stats <coll>`
-- stdout: `{ "dim": N, "count": N, "quantize": "...", "metric": "...", "ivf": bool, "sizeBytes": N }`
+- stdout: `{ "dim": N, "count": N, "quantize": "...", "metric": "...", "sizeBytes": N, "binBytes": N, "metaBytes": N }`
+- `binBytes` is the raw vector blob; `metaBytes` is the manifest JSON; `sizeBytes` is their sum.
+- For the same `dim` and `count`, expect `binBytes` to scale ≈ float32 (1×) > int8 (≈¼) > polar (≈3/32) > binary (≈1/32).
 - exit: 0 | 3
 
 ### `vec import <coll> <bin-path> <meta-path>`

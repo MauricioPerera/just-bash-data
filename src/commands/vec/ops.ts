@@ -241,12 +241,30 @@ export const statsOp = async (
   const coll = parsed.positional[1];
   if (!coll) throw new CommandError(EXIT.USAGE, "usage: vec stats <coll>");
   const entry = requireVecColl(reg, coll);
+  // Compute on-disk size from the in-memory adapter snapshot so the report
+  // is consistent with what `vec export` would persist. Suffix per quantize
+  // matches js-vector-store's _binFile() convention:
+  //   float32   → <coll>.bin / <coll>.json
+  //   int8      → <coll>.q8.bin / <coll>.q8.json
+  //   binary    → <coll>.b1.bin / <coll>.b1.json
+  //   polar     → <coll>.p3.bin / <coll>.p3.json
+  const suffix =
+    entry.quantize === "int8" ? ".q8" :
+    entry.quantize === "binary" ? ".b1" :
+    entry.quantize === "polar" ? ".p3" : "";
+  const bin = reg.mem.snapshotBin().get(`${coll}${suffix}.bin`);
+  const meta = reg.mem.snapshotJson().get(`${coll}${suffix}.json`);
+  const binBytes = bin?.byteLength ?? 0;
+  const metaBytes = meta ? new TextEncoder().encode(JSON.stringify(meta)).byteLength : 0;
   return {
     stdout: JSON.stringify({
       dim: entry.dim,
       count: entry.store.count(coll),
       quantize: entry.quantize,
       metric: entry.metric,
+      sizeBytes: binBytes + metaBytes,
+      binBytes,
+      metaBytes,
     }),
   };
 };
