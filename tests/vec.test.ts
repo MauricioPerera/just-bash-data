@@ -238,6 +238,146 @@ describe("vec stats / drop", () => {
   });
 });
 
+describe("v0.5.0 IVF index", () => {
+  const buildSearchHarness = () => buildHarness();
+
+  it("create --ivf returns ivf config in response", async () => {
+    const h = buildSearchHarness();
+    const r = okJson<{ ivf?: { numClusters: number; numProbes: number } }>(
+      await h.run(["create", "x", "--dim", "8", "--ivf"]),
+    );
+    expect(r.ivf).toEqual({ numClusters: 100, numProbes: 10 });
+  });
+
+  it("create --ivf-clusters N implies --ivf and tunes the config", async () => {
+    const h = buildSearchHarness();
+    const r = okJson<{ ivf?: { numClusters: number; numProbes: number } }>(
+      await h.run(["create", "x", "--dim", "8", "--ivf-clusters", "16", "--ivf-probes", "4"]),
+    );
+    expect(r.ivf).toEqual({ numClusters: 16, numProbes: 4 });
+  });
+
+  it("create --ivf-probes greater than --ivf-clusters → exit 2", async () => {
+    const h = buildSearchHarness();
+    const r = await h.run([
+      "create", "x", "--dim", "8", "--ivf-clusters", "4", "--ivf-probes", "10",
+    ]);
+    expect(r.exitCode).toBe(2);
+  });
+
+  it("create without --ivf omits ivf field (backward compat)", async () => {
+    const h = buildSearchHarness();
+    const r = okJson<Record<string, unknown>>(
+      await h.run(["create", "x", "--dim", "8"]),
+    );
+    expect(r["ivf"]).toBeUndefined();
+  });
+
+  it("ivf build on collection without --ivf → exit 2", async () => {
+    const h = buildSearchHarness();
+    okJson(await h.run(["create", "x", "--dim", "8"]));
+    const r = await h.run(["ivf", "build", "x"]);
+    expect(r.exitCode).toBe(2);
+    expect(r.stderr).toMatch(/not created with --ivf/);
+  });
+
+  it("ivf build on empty collection → exit 5", async () => {
+    const h = buildSearchHarness();
+    okJson(await h.run(["create", "x", "--dim", "8", "--ivf-clusters", "4", "--ivf-probes", "1"]));
+    const r = await h.run(["ivf", "build", "x"]);
+    expect(r.exitCode).toBe(5);
+    expect(r.stderr).toMatch(/empty/i);
+  });
+
+  it("ivf build + search returns hits with cosine similarity", async () => {
+    const h = buildSearchHarness();
+    okJson(await h.run(["create", "x", "--dim", "4", "--ivf-clusters", "2", "--ivf-probes", "2"]));
+    okJson(await h.run(["store", "x", "a", "[1,0,0,0]"]));
+    okJson(await h.run(["store", "x", "b", "[0,1,0,0]"]));
+    okJson(await h.run(["store", "x", "c", "[0,0,1,0]"]));
+    okJson(await h.run(["store", "x", "d", "[0,0,0,1]"]));
+    okJson(await h.run(["store", "x", "e", "[1,1,0,0]"]));
+    okJson(await h.run(["store", "x", "f", "[0,1,1,0]"]));
+
+    const built = okJson<{ numClusters: number; numVectors: number }>(
+      await h.run(["ivf", "build", "x"]),
+    );
+    expect(built.numClusters).toBeGreaterThan(0);
+    expect(built.numVectors).toBe(6);
+
+    const hits = okJson<Array<{ id: string; score: number }>>(
+      await h.run(["search", "x", "[1,0,0,0]", "--k", "2"]),
+    );
+    expect(hits.length).toBeGreaterThan(0);
+    expect(hits[0]?.id).toBe("a");
+  });
+
+  it("ivf stats reports numClusters + numProbes + numVectors after build", async () => {
+    const h = buildSearchHarness();
+    okJson(await h.run(["create", "x", "--dim", "4", "--ivf-clusters", "2", "--ivf-probes", "2"]));
+    for (const [id, v] of [["a","[1,0,0,0]"],["b","[0,1,0,0]"],["c","[0,0,1,0]"]]) {
+      okJson(await h.run(["store", "x", id, v]));
+    }
+    okJson(await h.run(["ivf", "build", "x"]));
+    const s = okJson<{ numClusters: number; numProbes: number; numVectors: number }>(
+      await h.run(["ivf", "stats", "x"]),
+    );
+    expect(s.numClusters).toBeGreaterThan(0);
+    expect(s.numClusters).toBeLessThanOrEqual(2);
+    expect(s.numProbes).toBe(2);
+    expect(s.numVectors).toBe(3);
+  });
+
+  it("ivf stats before build → exit 3", async () => {
+    const h = buildSearchHarness();
+    okJson(await h.run(["create", "x", "--dim", "4", "--ivf-clusters", "2", "--ivf-probes", "2"]));
+    const r = await h.run(["ivf", "stats", "x"]);
+    expect(r.exitCode).toBe(3);
+  });
+
+  it("ivf drop removes the index file (next stats returns exit 3)", async () => {
+    const h = buildSearchHarness();
+    okJson(await h.run(["create", "x", "--dim", "4", "--ivf-clusters", "2", "--ivf-probes", "2"]));
+    okJson(await h.run(["store", "x", "a", "[1,0,0,0]"]));
+    okJson(await h.run(["store", "x", "b", "[0,1,0,0]"]));
+    okJson(await h.run(["ivf", "build", "x"]));
+    okJson(await h.run(["ivf", "drop", "x"]));
+    const r = await h.run(["ivf", "stats", "x"]);
+    expect(r.exitCode).toBe(3);
+  });
+
+  it("search --no-ivf bypasses the index even when built", async () => {
+    const h = buildSearchHarness();
+    okJson(await h.run(["create", "x", "--dim", "4", "--ivf-clusters", "2", "--ivf-probes", "2"]));
+    for (const [id, v] of [["a","[1,0,0,0]"],["b","[0,1,0,0]"],["c","[0,0,1,0]"]]) {
+      okJson(await h.run(["store", "x", id, v]));
+    }
+    okJson(await h.run(["ivf", "build", "x"]));
+    const ivfHits = okJson<Array<{ id: string }>>(
+      await h.run(["search", "x", "[1,0,0,0]", "--k", "1"]),
+    );
+    const bruteHits = okJson<Array<{ id: string }>>(
+      await h.run(["search", "x", "[1,0,0,0]", "--k", "1", "--no-ivf"]),
+    );
+    expect(ivfHits[0]?.id).toBe("a");
+    expect(bruteHits[0]?.id).toBe("a");
+  });
+
+  it("stats shows ivf.built status before and after build", async () => {
+    const h = buildSearchHarness();
+    okJson(await h.run(["create", "x", "--dim", "4", "--ivf-clusters", "2", "--ivf-probes", "2"]));
+    okJson(await h.run(["store", "x", "a", "[1,0,0,0]"]));
+    okJson(await h.run(["store", "x", "b", "[0,1,0,0]"]));
+
+    const before = okJson<{ ivf?: { built: boolean } }>(await h.run(["stats", "x"]));
+    expect(before.ivf?.built).toBe(false);
+
+    okJson(await h.run(["ivf", "build", "x"]));
+    const after = okJson<{ ivf?: { built: boolean } }>(await h.run(["stats", "x"]));
+    expect(after.ivf?.built).toBe(true);
+  });
+});
+
 describe("vec persistence across registries (rehydrate)", () => {
   it("create + store, then a fresh registry on the same fs sees the data", async () => {
     const fs = new InMemoryFs({});

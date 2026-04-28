@@ -92,6 +92,21 @@ Group accumulators: `$count` `$sum` `$avg` `$min` `$max` `$push` `$first` `$last
 To reduce friction with models trained on MongoDB conventions:
 
 - **Empty string is empty filter (read-only handlers only)**: `db users find ''` and `db users count ''` are equivalent to using `'{}'`. Aggregate accepts `''` as the empty pipeline `[]` (no-op). **Destructive handlers reject `''`**: `remove`, `update`, `insert`, and `import` require explicit `'{}'` / `'[]'` to avoid silent mass-mutation if a model emits an empty arg by mistake.
+
+### IVF index for vector search (v0.5.0+)
+
+For collections with >10K vectors where exhaustive search becomes slow, enable IVF (Inverted File) clustering at create time:
+
+```bash
+vec create docs --dim 768 --quantize int8 --ivf-clusters 100 --ivf-probes 10
+# ... insert N vectors ...
+vec ivf build docs                                  # one-time k-means training
+vec search docs '<embedding>' --k 5                 # auto-uses IVF
+vec search docs '<embedding>' --k 5 --no-ivf        # brute-force fallback
+vec ivf stats docs                                  # {numClusters, numProbes, numVectors}
+```
+
+`numProbes` is the accuracy/speed knob: smaller = faster but lower recall. Cap is `numProbes ≤ numClusters`. IVF survives plugin restarts (the centroids file `<coll>.ivf.json` rehydrates automatically).
 - **`find` accepts an options object as second positional**: `db users find '{}' '{"sort":{"age":-1},"limit":10}'` works alongside the flag form `db users find '{}' --sort age:-1 --limit 10`. When both are present, flags win.
 - **`db <coll> export` / `db <coll> import`**: dump/restore documents as a JSON array — symmetric with `vec export` / `vec import`. Useful for backup, migration between collections, or syncing test fixtures.
 

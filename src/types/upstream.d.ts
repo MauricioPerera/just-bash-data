@@ -196,6 +196,16 @@ declare module "js-vector-store" {
   export class BinaryQuantizedStore extends VectorStore {}
   export class PolarQuantizedStore extends VectorStore {}
 
+  export class IVFIndex {
+    constructor(store: VectorStoreLike, numClusters?: number, numProbes?: number);
+    build(col: string, sampleDims?: number): { numClusters: number; numVectors: number };
+    hasIndex(col: string): boolean;
+    dropIndex(col: string): void;
+    indexStats(col: string): { numClusters: number; numProbes: number } | null;
+    search(col: string, query: number[], limit?: number): SearchHit[];
+    matryoshkaSearch(col: string, query: number[], limit?: number, stages?: number[]): SearchHit[];
+  }
+
   export class MemoryStorageAdapter implements SyncBinJsonAdapter {
     readJson(name: string): unknown;
     writeJson(name: string, data: unknown): void;

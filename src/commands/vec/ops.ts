@@ -1,5 +1,5 @@
 import type { CommandContext } from "just-bash";
-import { flagString, type ParsedArgs } from "../../lib/args.js";
+import { flagBool, flagString, type ParsedArgs } from "../../lib/args.js";
 import { CommandError, EXIT } from "../../lib/errors.js";
 import type { PluginRegistry } from "../../registry.js";
 import {
@@ -32,16 +32,107 @@ export const createOp = async (
   const quantize = quantizeFlag ? validateQuantize(quantizeFlag) : "float32";
   const metricFlag = flagString(parsed.flags, "metric");
   const metric = metricFlag ? validateMetric(metricFlag) : "cosine";
-  const entry = reg.registerVectorCollection(coll, dim, quantize, metric);
+
+  // IVF config: --ivf flag enables it; --ivf-clusters / --ivf-probes tune.
+  // Numeric flags imply --ivf even without the bool flag (DX shortcut).
+  const ivfClustersStr = flagString(parsed.flags, "ivf-clusters");
+  const ivfProbesStr = flagString(parsed.flags, "ivf-probes");
+  const ivfRequested =
+    flagBool(parsed.flags, "ivf") ||
+    ivfClustersStr !== undefined ||
+    ivfProbesStr !== undefined;
+  let ivf: { numClusters: number; numProbes: number } | undefined;
+  if (ivfRequested) {
+    const numClusters = ivfClustersStr ? Number(ivfClustersStr) : 100;
+    const numProbes = ivfProbesStr ? Number(ivfProbesStr) : 10;
+    if (!Number.isInteger(numClusters) || numClusters <= 0) {
+      throw new CommandError(EXIT.USAGE, `invalid --ivf-clusters: ${ivfClustersStr}`);
+    }
+    if (!Number.isInteger(numProbes) || numProbes <= 0) {
+      throw new CommandError(EXIT.USAGE, `invalid --ivf-probes: ${ivfProbesStr}`);
+    }
+    if (numProbes > numClusters) {
+      throw new CommandError(
+        EXIT.USAGE,
+        `--ivf-probes (${numProbes}) cannot exceed --ivf-clusters (${numClusters})`,
+      );
+    }
+    ivf = { numClusters, numProbes };
+  }
+
+  const entry = reg.registerVectorCollection(coll, dim, quantize, metric, ivf);
   reg.persistVectorRegistry();
-  return {
-    stdout: JSON.stringify({
-      coll,
-      dim: entry.dim,
-      quantize: entry.quantize,
-      metric: entry.metric,
-    }),
+  const out: Record<string, unknown> = {
+    coll,
+    dim: entry.dim,
+    quantize: entry.quantize,
+    metric: entry.metric,
   };
+  if (entry.ivf) out["ivf"] = entry.ivf;
+  return { stdout: JSON.stringify(out) };
+};
+
+export const ivfOp = async (
+  reg: PluginRegistry,
+  _ctx: CommandContext,
+  parsed: ParsedArgs,
+): Promise<{ stdout: string }> => {
+  const sub = parsed.positional[1];
+  const coll = parsed.positional[2];
+  if (!coll) {
+    throw new CommandError(EXIT.USAGE, "usage: vec ivf <build|stats|drop> <coll>");
+  }
+  const entry = requireVecColl(reg, coll);
+  if (!entry.ivfIndex) {
+    throw new CommandError(
+      EXIT.USAGE,
+      `collection '${coll}' was not created with --ivf; recreate with --ivf or --ivf-clusters`,
+    );
+  }
+  switch (sub) {
+    case "build": {
+      const sampleDimsStr = flagString(parsed.flags, "sample-dims");
+      const sampleDims = sampleDimsStr ? Number(sampleDimsStr) : Math.min(128, entry.dim);
+      try {
+        const result = entry.ivfIndex.build(coll, sampleDims);
+        return { stdout: JSON.stringify({ coll, ...result }) };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes("vacía") || msg.toLowerCase().includes("empty")) {
+          throw new CommandError(EXIT.VALIDATION, `validation: collection is empty: ${coll}`);
+        }
+        throw err;
+      }
+    }
+    case "stats": {
+      const stats = entry.ivfIndex.indexStats(coll);
+      if (!stats) {
+        throw new CommandError(
+          EXIT.NOT_FOUND,
+          `not found: ivf index not built for ${coll} (run: vec ivf build ${coll})`,
+        );
+      }
+      return {
+        stdout: JSON.stringify({
+          coll,
+          ...stats,
+          numVectors: entry.store.count(coll),
+        }),
+      };
+    }
+    case "drop": {
+      if (!entry.ivfIndex.hasIndex(coll)) {
+        throw new CommandError(EXIT.NOT_FOUND, `not found: ivf index for ${coll}`);
+      }
+      entry.ivfIndex.dropIndex(coll);
+      return { stdout: JSON.stringify({ dropped: coll }) };
+    }
+    default:
+      throw new CommandError(
+        EXIT.USAGE,
+        `usage: vec ivf <build|stats|drop> <coll>`,
+      );
+  }
 };
 
 export const storeOp = async (
@@ -163,15 +254,39 @@ export const searchOp = async (
   const metricOverride = flagString(parsed.flags, "metric");
   const metric = metricOverride ? validateMetric(metricOverride) : entry.metric;
   const matryoshka = flagString(parsed.flags, "matryoshka");
-  const hits = matryoshka
-    ? entry.store.matryoshkaSearch(
-        coll,
-        query,
-        k,
-        matryoshka.split(",").map((s) => Number(s.trim())),
-        metric,
-      )
-    : entry.store.search(coll, query, k, 0, metric, null);
+  const noIvf = flagBool(parsed.flags, "no-ivf");
+
+  // Route through IVF when available unless --no-ivf opts out. IVFIndex's
+  // search uses cosine internally regardless of the collection's metric, so
+  // --metric and IVF are mutually exclusive — fall back to brute-force if
+  // an explicit metric override is requested.
+  const useIvf =
+    !noIvf &&
+    !metricOverride &&
+    entry.ivfIndex !== undefined &&
+    entry.ivfIndex.hasIndex(coll);
+
+  let hits;
+  if (useIvf) {
+    hits = matryoshka
+      ? entry.ivfIndex!.matryoshkaSearch(
+          coll,
+          query,
+          k,
+          matryoshka.split(",").map((s) => Number(s.trim())),
+        )
+      : entry.ivfIndex!.search(coll, query, k);
+  } else {
+    hits = matryoshka
+      ? entry.store.matryoshkaSearch(
+          coll,
+          query,
+          k,
+          matryoshka.split(",").map((s) => Number(s.trim())),
+          metric,
+        )
+      : entry.store.search(coll, query, k, 0, metric, null);
+  }
   return { stdout: JSON.stringify(hits) };
 };
 
@@ -256,17 +371,23 @@ export const statsOp = async (
   const meta = reg.mem.snapshotJson().get(`${coll}${suffix}.json`);
   const binBytes = bin?.byteLength ?? 0;
   const metaBytes = meta ? new TextEncoder().encode(JSON.stringify(meta)).byteLength : 0;
-  return {
-    stdout: JSON.stringify({
-      dim: entry.dim,
-      count: entry.store.count(coll),
-      quantize: entry.quantize,
-      metric: entry.metric,
-      sizeBytes: binBytes + metaBytes,
-      binBytes,
-      metaBytes,
-    }),
+  const out: Record<string, unknown> = {
+    dim: entry.dim,
+    count: entry.store.count(coll),
+    quantize: entry.quantize,
+    metric: entry.metric,
+    sizeBytes: binBytes + metaBytes,
+    binBytes,
+    metaBytes,
   };
+  if (entry.ivfIndex && entry.ivf) {
+    out["ivf"] = {
+      built: entry.ivfIndex.hasIndex(coll),
+      numClusters: entry.ivf.numClusters,
+      numProbes: entry.ivf.numProbes,
+    };
+  }
+  return { stdout: JSON.stringify(out) };
 };
 
 export const dropOp = async (

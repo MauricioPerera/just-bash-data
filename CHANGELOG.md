@@ -2,6 +2,29 @@
 
 All notable changes to `just-bash-data` are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] — 2026-04-28
+
+### Added
+
+- **IVF (Inverted File) k-means index for `vec`.** Wraps the upstream `IVFIndex` class so collections with thousands of vectors can avoid exhaustive search. New surface:
+  - `vec create <coll> --ivf [--ivf-clusters N=100] [--ivf-probes N=10]` — opt in at create time. Numeric flags imply `--ivf` (DX shortcut).
+  - `vec ivf build <coll> [--sample-dims N]` — one-time k-means training; persists `<coll>.ivf.json`.
+  - `vec ivf stats <coll>` — `{numClusters, numProbes, numVectors}`.
+  - `vec ivf drop <coll>` — removes the index.
+  - `vec search <coll> <vec> [--no-ivf]` — auto-routes through IVF when present; `--no-ivf` opts out.
+  - `vec stats <coll>` now includes an `ivf: {built, numClusters, numProbes}` field when configured.
+- IVF config persists to `_vec.registry.json` and the centroids file `<coll>.ivf.json` rehydrates automatically across plugin restarts.
+- 12 new tests covering create variants, build/stats/drop, search routing with and without IVF, and the rehydrate path. Total suite: **139/139** (was 127).
+
+### Constraints
+
+- IVF in `js-vector-store` always uses cosine similarity internally. When `vec search` is called with an explicit `--metric` flag, it falls back to brute-force regardless of IVF state. Documented as a caveat in `specs/cmd-vec.md`.
+- `--ivf-probes` is validated to not exceed `--ivf-clusters` (exit 2 otherwise).
+
+### Compatibility
+
+Zero breaking changes. Collections created without `--ivf` behave identically to v0.4.0 — the new `ivf` field is omitted from `vec create` and `vec stats` responses when IVF is not configured.
+
 ## [0.4.0] — 2026-04-28
 
 ### Added

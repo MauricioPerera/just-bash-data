@@ -9,6 +9,7 @@ import {
   exportOp,
   getOp,
   importOp,
+  ivfOp,
   removeOp,
   searchAcrossOp,
   searchOp,
@@ -18,11 +19,28 @@ import {
 } from "./vec/ops.js";
 
 const FLAG_SPEC = {
-  bool: ["json"] as const,
-  string: ["dim", "quantize", "metric", "k", "probe", "matryoshka", "meta"] as const,
+  bool: ["json", "ivf", "no-ivf"] as const,
+  string: [
+    "dim",
+    "quantize",
+    "metric",
+    "k",
+    "probe",
+    "matryoshka",
+    "meta",
+    "ivf-clusters",
+    "ivf-probes",
+    "sample-dims",
+  ] as const,
 };
 
-const READ_ONLY = new Set(["search", "search-across", "get", "stats", "export"]);
+const READ_ONLY = new Set([
+  "search",
+  "search-across",
+  "get",
+  "stats",
+  "export",
+]);
 
 export type RegistryProvider = (fs: IFileSystem) => PluginRegistry;
 
@@ -71,10 +89,15 @@ export const buildVecCommand = (provide: RegistryProvider): Command =>
         case "drop":
           result = await dropOp(reg, ctx, parsed);
           break;
+        case "ivf":
+          result = await ivfOp(reg, ctx, parsed);
+          break;
         default:
           throw new CommandError(EXIT.USAGE, `unknown subcommand: vec ${sub}`);
       }
-      if (!READ_ONLY.has(sub)) {
+      // ivf build/drop mutate the index file; ivf stats is read-only.
+      const isIvfReadOnly = sub === "ivf" && parsed.positional[1] === "stats";
+      if (!READ_ONLY.has(sub) && !isIvfReadOnly) {
         for (const [, entry] of reg.vectorCollections()) {
           entry.store.flush();
         }

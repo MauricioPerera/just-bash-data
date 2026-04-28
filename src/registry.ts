@@ -7,6 +7,7 @@ import {
 } from "js-doc-store";
 import {
   BinaryQuantizedStore,
+  IVFIndex,
   PolarQuantizedStore,
   QuantizedStore,
   type SyncBinJsonAdapter,
@@ -27,11 +28,18 @@ export interface PluginOptions {
   rootDir?: string;
 }
 
+export interface IvfConfig {
+  numClusters: number;
+  numProbes: number;
+}
+
 export interface VectorCollection {
   store: VectorStoreLike;
   dim: number;
   quantize: Quantize;
   metric: Metric;
+  ivf?: IvfConfig;
+  ivfIndex?: IVFIndex;
 }
 
 export class PluginRegistry {
@@ -95,19 +103,44 @@ export class PluginRegistry {
       ) {
         continue;
       }
+      // Restore IVF config if it was persisted; the IVFIndex instance will
+      // lazily reload its centroids from <coll>.ivf.json on first search.
+      let ivf: IvfConfig | undefined;
+      const rawIvf = m["ivf"];
+      if (
+        rawIvf &&
+        typeof rawIvf === "object" &&
+        typeof (rawIvf as { numClusters?: unknown }).numClusters === "number" &&
+        typeof (rawIvf as { numProbes?: unknown }).numProbes === "number"
+      ) {
+        ivf = {
+          numClusters: (rawIvf as { numClusters: number }).numClusters,
+          numProbes: (rawIvf as { numProbes: number }).numProbes,
+        };
+      }
       this.registerVectorCollection(
         coll,
         m["dim"],
         m["quantize"] as Quantize,
         m["metric"] as Metric,
+        ivf,
       );
     }
   }
 
   persistVectorRegistry(): void {
-    const out: Record<string, { dim: number; quantize: Quantize; metric: Metric }> = {};
+    const out: Record<
+      string,
+      { dim: number; quantize: Quantize; metric: Metric; ivf?: IvfConfig }
+    > = {};
     for (const [coll, entry] of this.vecMap) {
-      out[coll] = { dim: entry.dim, quantize: entry.quantize, metric: entry.metric };
+      const o: { dim: number; quantize: Quantize; metric: Metric; ivf?: IvfConfig } = {
+        dim: entry.dim,
+        quantize: entry.quantize,
+        metric: entry.metric,
+      };
+      if (entry.ivf) o.ivf = entry.ivf;
+      out[coll] = o;
     }
     this.mem.writeJson(VEC_REGISTRY_FILE, out);
   }
@@ -149,6 +182,7 @@ export class PluginRegistry {
     dim: number,
     quantize: Quantize,
     metric: Metric,
+    ivf?: IvfConfig,
   ): VectorCollection {
     if (this.vecMap.has(coll)) {
       throw new Error(`vector collection already exists: ${coll}`);
@@ -169,6 +203,10 @@ export class PluginRegistry {
         store = new VectorStore(adapter, dim);
     }
     const entry: VectorCollection = { store, dim, quantize, metric };
+    if (ivf) {
+      entry.ivf = ivf;
+      entry.ivfIndex = new IVFIndex(store, ivf.numClusters, ivf.numProbes);
+    }
     this.vecMap.set(coll, entry);
     return entry;
   }
