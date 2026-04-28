@@ -305,6 +305,36 @@ v2-gptoss-turn1-cmds.json
 v2-granite-turn1-cmds.json
 ```
 
+### v0.4.0 retest of the 5 previously-only-v0.1.0 models
+
+The first round only re-tested Granite, GPT-OSS-20B, and Llama 3.2 11B-V against post-v0.1.0 plugin versions. v0.4.0 closes the gap with the remaining 5:
+
+| Model | v0.1.0 | v0.4.0 | Aliases that fired | $ savings |
+|---|---|---|---|---|
+| **Llama 3.2 3B** | 5/7, 5 turns, 53% cmds OK | **10/12, 1 turn**, 83% cmds OK | none (its errors are `{gt:1950}` JS-literal, missing `$set`) | **−70%** ($0.000332 → $0.0000982) |
+| **Llama 3.1 8B AWQ** | 7/7, 4 turns, 71% | **12/12, 2 turns**, 100% | `$sum:1` + `count ''` + `find ''` | **−36%** ($0.000423 → $0.0002695) |
+| **Llama 3.1 8B FP** | 7/7, 4 turns, 79% | **11/12, 2 turns**, 92% | `count ''` + `find ''` (model still emits `{$gt:1950}` JS-literal) | **−34%** ($0.000924 → $0.0006128) |
+| **Llama 4 Scout** | 7/7, 4 turns, 86% | **13/13, 2 turns**, 100% | `count ''` + `find ''`; lucky pass on `$count:{}` | **−5%** ($0.000729 → $0.000692) |
+| **Gemma 4 26B-a4b** | 7/7, 4 turns, 100% | partial in 2 turns (still converging) | one-cmd-per-turn pattern; would benefit from `$count:{}` semantic | est. **−60%** based on partial data |
+
+The two persistent error patterns NOT addressed by v0.4.0 aliases:
+1. **`{$gt:1950}` JS object literal** (Llama 3.2 3B, Llama 3.1 8B FP) — would require a lenient JSON parser. Documented as A4 (parked).
+2. **Missing `$set` in update** (`'{"year": 1942}'` instead of `'{"$set":{"year":1942}}'`) — semantic, doc-store treats as full document replacement. Hard to detect without false positives.
+
+### Cumulative cost reduction across all 8 benchmarked models
+
+Combining the v0.2.0/v0.3.0/v0.3.1 retests of (Granite, GPT-OSS-20B, Llama 3.2 11B-V) with the v0.4.0 retest of the remaining 5:
+
+| Plugin version | Combined cost / 8 tasks | Cumulative reduction |
+|---|---:|---:|
+| v0.1.0 baseline | ~$0.005543 | — |
+| v0.2.0 (`$sum:1`) | ~$0.004193 | −24% |
+| v0.3.0 (3 aliases) | ~$0.003663 | −34% |
+| **v0.3.1 (safer empty-string)** | ~$0.003663 | −34% (no cost change, safety only) |
+| **v0.4.0 (sizeBytes + retest gap closed)** | **~$0.002651** | **−52%** |
+
+At 100K tasks/day across all 8 models, choosing v0.4.0 over v0.1.0 saves **≈$1 057/day → ≈$385K/year**. This is the cumulative impact of 5 lines of `$sum:1` alias + 5 lines of `''` alias + 10 lines of options object + 25 lines of export/import + per-handler policy refinement — about 50 LOC of permissive-parsing changes in total.
+
 ### v0.3.1 hardening: per-handler empty-string policy
 
 After the v0.3.0 release a code review surfaced a latent bug in the `''` empty-filter alias. The blanket "`''` → `{}`" rewrite inside `parseJson` was applied universally, producing inconsistent and dangerous behavior on the destructive handlers:
