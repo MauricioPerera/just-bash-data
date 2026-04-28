@@ -1,6 +1,6 @@
 # Agent reference: `db` and `vec` commands
 
-This file is written for an LLM agent operating *inside* a `just-bash` shell that has the `@local/just-bash-data` plugin loaded. It is not a tutorial — it is the minimal set of facts you need to use the commands accurately.
+This file is written for an LLM agent operating *inside* a `just-bash` shell that has the `just-bash-data` plugin loaded. It is not a tutorial — it is the minimal set of facts you need to use the commands accurately.
 
 ## Calling convention
 
@@ -87,11 +87,23 @@ Group accumulators: `$count` `$sum` `$avg` `$min` `$max` `$push` `$first` `$last
 
 **Counting items per group** uses `$count`. The MongoDB idiom `{"$sum": 1}` is also accepted (rewritten to `{"$count": 1}` automatically). Both forms produce the same result. `$sum` with a string operand still computes the sum of that field, e.g. `{"$sum": "$amount"}`. **Note**: `{"$sum": N}` with `N ≠ 1` is treated as `{"$count": 1}` regardless of `N` — this tool's `$count` does not support a multiplier; use `{"$sum": "$field"}` if you need weighted sums of an actual numeric field.
 
+`$lookup` syntax:
+
+```json
+{"$lookup":{"from":"users","localField":"userId","foreignField":"_id","as":"user","single":true}}
+```
+
+`single:true` returns a one-to-one object; omit it (or `false`) for a one-to-many array.
+
 ### Mongo-style aliases (v0.3.0+)
 
 To reduce friction with models trained on MongoDB conventions:
 
 - **Empty string is empty filter (read-only handlers only)**: `db users find ''` and `db users count ''` are equivalent to using `'{}'`. Aggregate accepts `''` as the empty pipeline `[]` (no-op). **Destructive handlers reject `''`**: `remove`, `update`, `insert`, and `import` require explicit `'{}'` / `'[]'` to avoid silent mass-mutation if a model emits an empty arg by mistake.
+
+- **`find` accepts an options object as second positional**: `db users find '{}' '{"sort":{"age":-1},"limit":10}'` works alongside the flag form `db users find '{}' --sort age:-1 --limit 10`. When both are present, flags win.
+
+- **`db <coll> export` / `db <coll> import`**: dump/restore documents as a JSON array — symmetric with `vec export` / `vec import`. Useful for backup, migration between collections, or syncing test fixtures.
 
 - **Lenient JSON fallback (v0.6.0+)**: when strict `JSON.parse` fails on a positional JSON arg, the plugin retries with a permissive parser that accepts JS-object-literal style: bareword keys (`{$gt: 1950}`), single-quoted strings (`{'a': 'b'}`), and trailing commas (`{a:1,}`). Strict JSON behavior is unchanged. String content (the actual text, e.g. `"foo: bar"`) is never modified by the relaxer. If neither strict nor lenient parsing succeeds, you still get `exit 2 invalid json: <field>`.
 
@@ -105,6 +117,8 @@ To reduce friction with models trained on MongoDB conventions:
 
   Update operator validation does NOT recurse into values, so `{"$set": {"push": "sticky"}}` (a legit field assignment) is accepted.
 
+- **Collection name validation (v1.0.1+)**: `db <coll>` and `vec <coll>` reject names that don't match `^[a-zA-Z0-9_][a-zA-Z0-9_-]{0,63}$` with **exit 2**. This blocks path traversal (`db ../escape insert ...`) and accidental conflicts with internal manifest filenames. Allowed: `books`, `user_logs`, `docs-2024`, `_cache`. Rejected: `foo.bar`, `with space`, `../evil`.
+
 ### IVF index for vector search (v0.5.0+)
 
 For collections with >10K vectors where exhaustive search becomes slow, enable IVF (Inverted File) clustering at create time:
@@ -116,19 +130,10 @@ vec ivf build docs                                  # one-time k-means training
 vec search docs '<embedding>' --k 5                 # auto-uses IVF
 vec search docs '<embedding>' --k 5 --no-ivf        # brute-force fallback
 vec ivf stats docs                                  # {numClusters, numProbes, numVectors}
+vec ivf drop docs                                   # remove the index (collection survives)
 ```
 
-`numProbes` is the accuracy/speed knob: smaller = faster but lower recall. Cap is `numProbes ≤ numClusters`. IVF survives plugin restarts (the centroids file `<coll>.ivf.json` rehydrates automatically).
-- **`find` accepts an options object as second positional**: `db users find '{}' '{"sort":{"age":-1},"limit":10}'` works alongside the flag form `db users find '{}' --sort age:-1 --limit 10`. When both are present, flags win.
-- **`db <coll> export` / `db <coll> import`**: dump/restore documents as a JSON array — symmetric with `vec export` / `vec import`. Useful for backup, migration between collections, or syncing test fixtures.
-
-`$lookup` syntax:
-
-```json
-{"$lookup":{"from":"users","localField":"userId","foreignField":"_id","as":"user","single":true}}
-```
-
-`single:true` returns a one-to-one object; omit it (or `false`) for a one-to-many array.
+`numProbes` is the accuracy/speed knob: smaller = faster but lower recall. Cap is `numProbes ≤ numClusters`. IVF survives plugin restarts (the centroids file `<coll>.ivf.json` rehydrates automatically). When `vec search` is called with an explicit `--metric` flag, IVF falls back to brute-force regardless (upstream IVF always uses cosine internally).
 
 ### Indexes
 
@@ -167,7 +172,7 @@ export AUTH_TOKEN=$(db auth login user@x.com pass | jq -r '.token')
 db users insert '{"x":1}'           # picks up $AUTH_TOKEN automatically
 ```
 
-Auth-required ops: `insert`, `update`, `remove`, `drop`, `index create`, `index drop`, `auth role assign`, `auth role remove`. Everything else (find, count, aggregate, login, register, verify, logout) is public even when auth is on.
+Auth-required ops (need a valid token when `authSecret` is set): `insert`, `update`, `remove`, `import`, `drop`, `index create`, `index drop`, `auth role assign`, `auth role remove`. Public ops (no token needed): `find`, `count`, `aggregate`, `stats`, `export`, `index list`, `auth verify`, `auth login`, `auth register`, `auth logout`. `drop` and `auth role assign|remove` additionally require the `admin` role.
 
 ## `vec`
 
@@ -208,7 +213,7 @@ Both return arrays sorted by `score` descending. **Higher score = more similar r
 ```bash
 vec get    <coll> <id>                           # → {id, vector, metadata}
 vec remove <coll> <id>                           # → {removed}
-vec stats  <coll>                                # → {dim, count, quantize, metric}
+vec stats  <coll>                                # → {dim, count, quantize, metric, sizeBytes, binBytes, metaBytes [, ivf, corrupted]}
 vec export <coll>                                # → {exported, records}
 vec import <coll> <json-path-or-->               # array of {id, vector, metadata?}
 vec drop   <coll>
@@ -256,9 +261,12 @@ db chunks find "{\"_id\":{\"\$in\":[$ids]},\"tag\":\"public\"}" | jq -r '.[].bod
 - **Exit 5 "collection exists"**: use a different name or `vec drop <coll>` first.
 - **Exit 3**: the collection or id doesn't exist. `db <coll> stats` / `vec stats <coll>` report 3 if missing — useful as an existence probe.
 
-## What you cannot do (yet)
+## What you cannot do
 
-- IVF tuning via flags (the upstream class exists but isn't wired in).
-- Change a vector collection's `dim` or `quantize` without `drop` + `create` + reinsert.
-- Cross-shell concurrent writes — each `Bash` instance gets its own state per `IFileSystem`.
-- Stream large blob outputs — every command's stdout is a single buffered JSON document.
+- **`db.<coll>.<method>(...)` parens form** — bash parse error before any command dispatch. Use the space-separated form `db <coll> <method>`.
+- **`db <coll> aggregate '<filter>' '<accumulator>'`** (two JSON args instead of a pipeline array) — structurally ambiguous, no alias provided. Use `db <coll> aggregate '[{"$match": <filter>}, {"$group": <accumulator-spec>}]'`.
+- **Change a vector collection's `dim` or `quantize`** in place — requires `drop` + `create` + reinsert. (`vec export` to capture data first.)
+- **IVF + custom `--metric`** — upstream IVF always runs cosine internally; passing `--metric` to `vec search` triggers brute-force fallback.
+- **Cross-shell concurrent writes** — each `Bash` instance gets its own state per `IFileSystem`. Two `Bash` instances over the *same* `IFileSystem` share state (via `WeakMap`-cached `PluginRegistry`).
+- **Stream large blob outputs** — every command's stdout is a single buffered JSON document.
+- **A field literally named after a Mongo operator (`gt`, `set`, `or`, …) at the top level of a filter** — the v0.8.x validator flags it as missing-`$`. Workaround: wrap the value in `{"$eq": ...}` so the operator name appears in a position the validator doesn't inspect, or rename the field.

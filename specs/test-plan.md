@@ -50,7 +50,7 @@ Covers the three storage classes against a single `MockFs` IFileSystem mock.
 ### Registry
 - `ensureHydrated` is idempotent (10 parallel calls → 1 hydrate)
 - `flushIfDirty` is a no-op when MemoryAdapter has no dirty entries (zero `fs.writeFile`)
-- Distinct `--root` paths produce distinct registries
+- Distinct `IFileSystem` instances or distinct `rootDir` plugin options produce distinct registries
 
 ## `tests/db.test.ts`
 

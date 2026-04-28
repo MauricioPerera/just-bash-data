@@ -15,8 +15,8 @@ Auth token, when required, is read from `ctx.env.get("AUTH_TOKEN")` or the flag 
 | flag | meaning |
 |------|---------|
 | `--token=<jwt>` | auth token override (wins over `ctx.env.AUTH_TOKEN`) |
-| `--root=<path>` | overrides `PluginOptions.rootDir` for this invocation only; new collections under the override go to a separate registry slot |
-| `--json` | force machine-readable stdout (default for exitCode=0) |
+
+stdout on `exitCode=0` is always a single JSON document. There is no opt-in to a different format.
 
 ## Auth model
 
@@ -82,6 +82,7 @@ Auth token, when required, is read from `ctx.env.get("AUTH_TOKEN")` or the flag 
 
 ### `db <coll> stats`
 - stdout: `{ "count": N, "indexes": [...], "sizeBytes": N }`
+- `sizeBytes` is the UTF-8 byte length of the serialized documents (not UTF-16 code units; v1.0.1+).
 - exit: 0 | 3
 
 ### `db <coll> export`
@@ -120,9 +121,38 @@ Auth token, when required, is read from `ctx.env.get("AUTH_TOKEN")` or the flag 
 - stdout: `{ "user": "...", "roles": [...] }`
 - exit: 0 | 4 | 3
 
+## Permissive-parsing layers (versioned)
+
+These behaviors are part of the stable contract as of v1.0.0. They are layered: the lenient JSON parser runs first; on success the operator validator runs second. Strict canonical input bypasses both.
+
+### Lenient JSON fallback (v0.6.0+)
+
+Already mentioned under `find` above. Applies to every JSON positional arg in `db` (filter, document, update, pipeline, options, import data). When strict `JSON.parse` fails, the plugin retries with a permissive parser that handles bareword keys, single-quoted strings, and trailing commas. String content (inside `"..."` or `'...'`) is never touched.
+
+### Dot-syntax sentinels (v0.7.0+)
+
+`db.<coll> ...` (dot separator without parens) is dispatched by bash to a separate command name. The plugin pre-registers ~30 sentinels for common collection names that respond with **exit 2** + a redirect to `db <coll> ...`. The parens form `db.<coll>.<method>(...)` triggers a bash parse error before dispatch and is uninterceptable.
+
+### Operator `$`-prefix validation (v0.8.0/v0.8.1)
+
+Bareword operator names (without `$`) are rejected with **exit 5** + `validation: <field> operator '<X>' [at <path>] is missing $ prefix — did you mean '$<X>'?`. Coverage:
+
+| Shape | Operators caught |
+|---|---|
+| Filter (in `find`/`count`/`update`/`remove`) | `eq, ne, gt, gte, lt, lte, in, nin, exists, regex, contains, size, and, or, not` |
+| Pipeline stages (in `aggregate`) | `match, lookup, group, sort, limit, skip, project, unwind` |
+| Group accumulators (inside `$group`) | `count, sum, avg, min, max, push, first, last` |
+| Update operators (top-level only) | `set, unset, inc, push, pull, rename` |
+
+The update validator does NOT recurse into operator values. `{"$set": {"push": "sticky"}}` (legitimate field assignment) is accepted.
+
+### Collection name validation (v1.0.1+)
+
+`<coll>` must match `^[a-zA-Z0-9_][a-zA-Z0-9_-]{0,63}$`. Names with `.`, `/`, `..`, spaces, or other special characters reject with **exit 2** + `invalid collection name: '<name>' — allowed: ...`. This blocks path traversal and accidental collisions with internal manifest filenames.
+
 ## stdin behavior
 
-For `insert`, `update`, `aggregate`, `find`: if **exactly one** JSON positional arg is `-`, that one is read from `ctx.stdin`. Two `-` in the same invocation (e.g., `db users update - -`) is a usage error (exit 2): `usage: only one positional may read from stdin`.
+Any JSON positional arg may be `-` to read from `ctx.stdin`. This applies to `insert`, `find` (filter and options), `count`, `update` (filter and update), `remove`, `aggregate`, and `import`. Two `-` in the same invocation (e.g., `db users update - -`) is a usage error (exit 2): `usage: only one positional may read from stdin`.
 
 ## Stderr conventions
 

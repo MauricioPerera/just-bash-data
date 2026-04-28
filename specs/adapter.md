@@ -26,15 +26,17 @@ Files involved:
 class MemoryAdapter {
   readJson(name: string): unknown | null;
   writeJson(name: string, data: unknown): void;
-  readBin(name: string): Uint8Array | null;
-  writeBin(name: string, data: Uint8Array): void;
+  readBin(name: string): ArrayBuffer | null;
+  writeBin(name: string, data: ArrayBuffer | Uint8Array): void;
   delete(name: string): void;
+  hasDirty(): boolean;
   // surfaces for Persister:
-  snapshotJson(): Map<string, unknown>;
-  snapshotBin(): Map<string, Uint8Array>;
+  snapshotJson(): ReadonlyMap<string, unknown>;
+  snapshotBin(): ReadonlyMap<string, Uint8Array>;
   loadJson(name: string, data: unknown): void; // hydrate
-  loadBin(name: string, data: Uint8Array): void;
+  loadBin(name: string, data: ArrayBuffer | Uint8Array): void;
   takeDirty(): { jsonChanged: Set<string>; binChanged: Set<string>; deleted: Set<string> };
+  restoreDirty(d: { jsonChanged?: Iterable<string>; binChanged?: Iterable<string>; deleted?: Iterable<string> }): void; // v1.0.1+
 }
 ```
 
@@ -42,7 +44,9 @@ class MemoryAdapter {
 - `delete` removes from both, adds the name to the dirty `deleted` set.
 - Every `writeJson` / `writeBin` adds the name to its respective `*Changed` set.
 - `takeDirty()` returns the sets and clears them. Persister calls this before flushing.
+- `restoreDirty()` re-marks entries dirty after a partial flush failure (v1.0.1+). Without it, an `atomicWrite` failure mid-loop would silently drop pending writes.
 - `loadJson` / `loadBin` populate the maps without touching dirty sets (used during hydration).
+- `readBin` / `writeBin` accept `ArrayBuffer` *or* `Uint8Array` and store internally as `Uint8Array`; `readBin` returns `ArrayBuffer` to match the upstream `js-vector-store` adapter contract.
 
 ## `EncryptedBinAdapter` (sync, optional sandwich)
 
@@ -50,14 +54,15 @@ Mirrors `js-doc-store`'s `EncryptedAdapter` API for binary content. Required bec
 
 ```typescript
 class EncryptedBinAdapter {
-  constructor(inner: MemoryAdapter, key: CryptoKey);
   static create(inner: MemoryAdapter, password: string, salt?: string): Promise<EncryptedBinAdapter>;
-  readBin(name: string): Uint8Array | null;
-  writeBin(name: string, data: Uint8Array): void;
+  readBin(name: string): ArrayBuffer | null;
+  writeBin(name: string, data: ArrayBuffer | Uint8Array): void;
   delete(name: string): void;
   // sandwich lifecycle:
-  preload(names: string[]): Promise<void>;
+  preload(names: readonly string[]): Promise<void>;
   persist(): Promise<void>;
+  // corruption / wrong-key detection (v1.0.1+):
+  isCorrupted(name: string): boolean;
   // pass-through for any json calls (no encryption on json — that's EncryptedAdapter's job):
   readJson(name: string): unknown | null;
   writeJson(name: string, data: unknown): void;
@@ -67,8 +72,9 @@ class EncryptedBinAdapter {
 - Wire format on disk (within `inner`): `Uint8Array` of `[12-byte IV][ciphertext]`. AES-256-GCM.
 - `writeBin(name, plain)` → store plaintext in `_cache: Map<string, Uint8Array>` and mark `_pending.add(name)`. Pass-through `readBin` returns from `_cache`.
 - `persist()` encrypts each pending entry with a fresh IV, calls `inner.writeBin(name, [iv|ct])`, clears pending.
-- `preload(names)` reads each from `inner.readBin`, decrypts, populates `_cache`.
+- `preload(names)` reads each from `inner.readBin`, decrypts, populates `_cache`. **If decryption fails (wrong key, tampered ciphertext, truncated IV), the cache gets an empty buffer AND the name is added to a `corruptedSet`** — `isCorrupted(name)` returns true. Preserves the no-plaintext-leak property while letting callers (e.g., `vec stats`) surface a `corrupted: true` signal that distinguishes wrong-key from legit-empty.
 - Bytes that pass through `inner.writeBin` to the Persister are already ciphertext.
+- The default salt is the literal string `"js-vector-store-v1"`. Same password + same salt → same derived AES key, which is the property that lets two `Bash` instances share encrypted state. If a future `PluginOptions.salt` gets added, opt-in only.
 
 ## `Persister` (async)
 
@@ -99,36 +105,49 @@ class Persister {
 1. If `encJson` provided: `await encJson.persist()`. The encrypted bytes land in `mem` via `inner.writeJson`, which marks them dirty.
 2. If `encBin` provided: `await encBin.persist()`.
 3. `dirty = mem.takeDirty()`.
-4. For each name in `dirty.jsonChanged`:
+4. Track `remaining{Json,Bin,Deleted}` sets initialized from `dirty`. Each successful write deletes the name from its `remaining` set.
+5. For each name in `dirty.jsonChanged`:
    - `data = mem.snapshotJson().get(name)` — already encrypted if encryption was active.
    - Write atomic: `await fs.writeFile(absPath + ".tmp", JSON.stringify(data), "utf8")`, then `await fs.mv(absPath + ".tmp", absPath)`. On failure, `await fs.rm(absPath + ".tmp", { force: true })`.
-5. For each name in `dirty.binChanged`: same pattern with `Uint8Array` payload.
-6. For each name in `dirty.deleted`: `await fs.rm(absPath, { force: true })`.
+6. For each name in `dirty.binChanged`: same pattern with `Uint8Array` payload.
+7. For each name in `dirty.deleted`: `await fs.rm(absPath, { force: true })`.
+8. **If any step throws (v1.0.1+)**: catch, call `mem.restoreDirty({ jsonChanged: remainingJson, binChanged: remainingBin, deleted: remainingDeleted })`, then re-throw. The next flush retries the unwritten entries; written-but-not-yet-renamed `.tmp` files are cleaned up by `atomicWrite`'s own catch.
 
-Concurrency: a single in-flight `flush` is allowed per registry. Re-entrant calls await the active promise.
+Concurrency: flushes are serialized via a `flushChain: Promise<void>` field. Each `flush()` call appends a `doFlush` to the chain so its `takeDirty()` runs *after* any earlier flush completes. The chain is `.catch(()=>undefined)`-protected so a single failure doesn't poison subsequent flushes; the failure is re-thrown to the caller of `flush()` itself but the chain continues.
 
 ## `PluginRegistry`
 
 ```typescript
 class PluginRegistry {
-  constructor(opts: PluginOptions);
-  ensureHydrated(fs: IFileSystem): Promise<void>;
-  flushIfDirty(fs: IFileSystem): Promise<void>;
+  constructor(fs: IFileSystem, opts: PluginOptions);
+  // lifecycle
+  ensureHydrated(): Promise<void>;
+  flushIfDirty(): Promise<void>;
+  // doc-store side
   getDocStore(): DocStore;
-  getVectorStoreFor(coll: string, dim: number, quantize: Quantize, metric: Metric): VectorStore | QuantizedStore | BinaryQuantizedStore | PolarQuantizedStore;
-  // exposed for tests:
+  getAuth(): Promise<Auth>;
+  // vec-store side
+  getVectorCollection(coll: string): VectorCollection | null;
+  registerVectorCollection(coll: string, dim: number, quantize: Quantize, metric: Metric, ivf?: IvfConfig): VectorCollection;
+  removeVectorCollection(coll: string): boolean;
+  vectorCollections(): IterableIterator<[string, VectorCollection]>;
+  persistVectorRegistry(): void;
+  // exposed (readonly) for tests / handlers:
   readonly mem: MemoryAdapter;
-  readonly encJson?: EncryptedAdapter;
-  readonly encBin?: EncryptedBinAdapter;
+  readonly opts: PluginOptions;
+  readonly persister: Persister;
+  readonly root: string;
+  encJson: EncryptedAdapter | null;
+  encBin: EncryptedBinAdapter | null;
 }
 ```
 
 Lifecycle:
 
-- Constructed once inside `createDataPlugin`. No I/O at construction.
-- `ensureHydrated` runs the `Persister.hydrate` once and caches the result via a `Promise<void>` field; subsequent calls return the same promise.
-- `flushIfDirty` is called at the end of every mutating command. Read-only commands skip it.
-- `--root=<path>` flag: a separate `PluginRegistry` instance lives per distinct root, indexed in a `Map<string, PluginRegistry>` inside `createDataPlugin`.
+- Constructed eagerly inside `createDataPlugin`'s WeakMap-cached factory (one per `IFileSystem`). No I/O at construction.
+- `ensureHydrated` runs `setupEncryption` (if `encryptionKey` set) then `Persister.hydrate`, then `rehydrateVectorRegistry` (rebuilds the in-memory vec collection map from `_vec.registry.json`). Cached as a `Promise<void>` field; concurrent callers share it.
+- `flushIfDirty` is called at the end of every mutating command. Read-only commands skip it. When encryption is configured, also flushes pending encrypted writes regardless of `mem.hasDirty()`.
+- One registry per `IFileSystem`. There is no `--root=<path>` flag — to use a different rootDir, construct a separate `Bash` instance with `createDataPlugin({ rootDir: ... })`.
 
 ## Path layout (under `root`)
 
@@ -138,12 +157,12 @@ Lifecycle:
 | `<coll>.meta.json` | doc-store | index metadata |
 | `<coll>.<field>.idx.json` | doc-store | hash index |
 | `<coll>.<field>.sidx.json` | doc-store | sorted index |
-| `<coll>.schema.json` | doc-store Table | column schema |
-| `<coll>.views.json` | doc-store Table | saved views |
-| `<coll>.bin` | vector-store | raw vectors |
-| `<coll>.json` | vector-store | dim/count/quantize/idMap |
-| `_auth.users.json` | doc-store Auth | users (encrypted if active) |
-| `_auth.sessions.json` | doc-store Auth | sessions |
+| `<coll>.bin` (float32) / `<coll>.q8.bin` (int8) / `<coll>.b1.bin` (binary) / `<coll>.p3.bin` (polar) | vector-store | raw vectors per quantization |
+| `<coll>.json` (and quantized variants `.q8.json` / `.b1.json` / `.p3.json`) | vector-store | per-collection manifest (dim/count/quantize/idMap) |
+| `<coll>.ivf.json` | vector-store IVF | k-means centroids (only when IVF is built) |
+| `_users.docs.json` | doc-store Auth | users (encrypted if `encryptionKey` set) |
+| `_sessions.docs.json` | doc-store Auth | active JWT sessions |
+| `_vec.registry.json` | this plugin | per-coll vec config (dim/quantize/metric/ivf) |
 
 ## What is NOT in this layer
 

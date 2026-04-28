@@ -12,10 +12,7 @@ Vectors are passed as JSON arrays of finite numbers. `-` reads from `ctx.stdin`.
 
 ## Global flags
 
-| flag | meaning |
-|------|---------|
-| `--root=<path>` | overrides `PluginOptions.rootDir` for this invocation only; new collections under the override go to a separate registry slot |
-| `--json` | force machine-readable stdout (default for exitCode=0) |
+stdout on `exitCode=0` is always a single JSON document. There are no global vec flags — every flag is per-subcommand.
 
 ## Subcommands
 
@@ -44,9 +41,11 @@ Vectors are passed as JSON arrays of finite numbers. `-` reads from `ctx.stdin`.
 - stdout: `{ "stored": N, "skipped": M, "errors": [{"line": L, "reason": "..."}, ...] }` — `errors` truncated to first 20 entries.
 - exit: 0 (even with skipped > 0) | 2 (bad path / collection arg) | 3 (collection missing) | 5 (id collision aborted batch)
 
-### `vec search <coll> <vector-json> [--k N=10] [--probe N] [--metric <override>] [--matryoshka <prefix-csv>]`
+### `vec search <coll> <vector-json> [--k N=10] [--metric <override>] [--matryoshka <prefix-csv>] [--no-ivf]`
 - `--matryoshka 64,256,1024` runs progressive-dim filtering.
-- stdout: JSON array `[{ "id": "...", "score": N, "meta": {...} }, ...]` sorted by `score` **descending — higher = more similar**, regardless of metric. The adapter relies on `js-vector-store#computeScore()` to normalize so that cosine/dot/euclidean/manhattan all expose `score` with this convention. If a future js-vector-store release breaks this invariant, STOP and report.
+- `--no-ivf` forces brute-force scan even when an IVF index has been built. Default routing: when `entry.ivfIndex.hasIndex(coll)` is true and `--metric` is NOT overridden, search runs through IVF; otherwise brute-force.
+- `--metric` and IVF are mutually exclusive — upstream IVF always uses cosine internally, so passing `--metric` falls back to brute-force.
+- stdout: JSON array `[{ "id": "...", "score": N, "metadata": {...} }, ...]` sorted by `score` **descending — higher = more similar**, regardless of metric. The adapter relies on `js-vector-store#computeScore()` to normalize so that cosine/dot/euclidean/manhattan all expose `score` with this convention. If a future js-vector-store release breaks this invariant, STOP and report.
 - exit: 0 | 2 | 3
 
 ### `vec search-across <coll-csv> <vector-json> [--k N=10]`
@@ -54,7 +53,7 @@ Vectors are passed as JSON arrays of finite numbers. `-` reads from `ctx.stdin`.
 - exit: 0 | 2 | 3
 
 ### `vec get <coll> <id>`
-- stdout: `{ "id": "...", "vector": [...], "meta": {...} }`
+- stdout: `{ "id": "...", "vector": [...], "metadata": {...} }`
 - exit: 0 | 3
 
 ### `vec remove <coll> <id>`
@@ -62,24 +61,43 @@ Vectors are passed as JSON arrays of finite numbers. `-` reads from `ctx.stdin`.
 - exit: 0 | 3
 
 ### `vec stats <coll>`
-- stdout: `{ "dim": N, "count": N, "quantize": "...", "metric": "...", "sizeBytes": N, "binBytes": N, "metaBytes": N }`
+- stdout: `{ "dim": N, "count": N, "quantize": "...", "metric": "...", "sizeBytes": N, "binBytes": N, "metaBytes": N [, "ivf": {...} ] [, "corrupted": true ] }`
 - `binBytes` is the raw vector blob; `metaBytes` is the manifest JSON; `sizeBytes` is their sum.
 - For the same `dim` and `count`, expect `binBytes` to scale ≈ float32 (1×) > int8 (≈¼) > polar (≈3/32) > binary (≈1/32).
+- `ivf: { built, numClusters, numProbes }` appears only when the collection was created with IVF flags (v0.5.0+).
+- `corrupted: true` appears when encryption is on AND the bin file failed to decrypt during preload — distinguishes "wrong key / tampered file" from "legit empty collection" (v1.0.1+).
 - exit: 0 | 3
 
-### `vec import <coll> <bin-path> <meta-path>`
-- Imports `bin` + `meta.json` produced by `export`.
+### `vec export <coll>`
+- Returns all vectors and metadata as a JSON array.
+- stdout: `{ "exported": N, "records": [{ "id", "vector", "metadata" }, ...] }`
+- exit: 0 | 3
+
+### `vec import <coll> <jsonl-path-or-->`
+- Imports an array of records previously produced by `export`. `<jsonl-path-or-->` is either a virtual-FS path or `-` to read the JSON array from stdin.
+- Each record is validated: `id: string`, `vector: number[]` of length `dim`, all finite. v1.0.1+ rejects malformed records with `validation: import record at index N: <reason>` (exit 5) instead of letting upstream throw an opaque error.
 - stdout: `{ "imported": N }`
-- exit: 0 | 2 | 5
-
-### `vec export <coll> <bin-path> <meta-path>`
-- Writes vectors and metadata to virtual-FS paths.
-- stdout: `{ "exported": N }`
-- exit: 0 | 3
+- exit: 0 | 2 (bad path / cannot read) | 3 (collection missing) | 5 (invalid record / malformed JSON)
 
 ### `vec drop <coll>`
+- Removes the collection's data and config.
 - stdout: `{ "dropped": "<coll>" }`
 - exit: 0 | 3
+
+### `vec ivf build <coll> [--sample-dims N]`
+- Trains the IVF k-means centroids over the collection's vectors. One-time op; persists `<coll>.ivf.json`.
+- `--sample-dims` defaults to `min(128, dim)`.
+- stdout: `{ "coll": "<coll>", ...buildResult }` (upstream return shape)
+- exit: 0 | 2 (collection has no IVF config) | 3 (collection missing) | 5 (collection empty)
+
+### `vec ivf stats <coll>`
+- stdout: `{ "coll": "<coll>", "numClusters": N, "numProbes": N, "numVectors": N, ... }`
+- exit: 0 | 2 (no IVF config) | 3 (index not built yet)
+
+### `vec ivf drop <coll>`
+- Removes the IVF index. The collection itself survives.
+- stdout: `{ "dropped": "<coll>" }`
+- exit: 0 | 2 (no IVF config) | 3 (index not built)
 
 ## Stderr conventions
 
@@ -87,10 +105,14 @@ Vectors are passed as JSON arrays of finite numbers. `-` reads from `ctx.stdin`.
 - exit 3: `not found: <coll>` or `not found: <coll>/<id>`
 - exit 5: `validation: dim mismatch (got N, expected M)` / `validation: collection exists: <coll>` / `validation: cannot quantize: <reason>`
 
+## Permissive-parsing layers
+
+The same v1.0.0 stable contract applies as for `db` (see `cmd-db.md` § Permissive-parsing layers): collection name validation (v1.0.1+) and dot-syntax sentinels (v0.7.0+) cover `vec` too. Lenient JSON / operator validation are not relevant to `vec` because vec arguments are vectors (number arrays) and per-flag values, not Mongo-style filter trees.
+
 ## Performance notes (informational, not enforced by tests)
 
 - `vec store` for float32 with no IVF is O(1) write, O(N) on first search after writes.
-- `vec search` with IVF + `--probe P` scans `P` clusters out of total clusters; `--probe` defaults to `clusters / 4`.
+- `vec search` with IVF scans `numProbes` clusters out of `numClusters` (set at create time, not search time).
 - Quantization is one-shot at insert time; changing `--quantize` requires `drop` + `create` + reinsert.
 
 ## Examples
@@ -99,9 +121,16 @@ Vectors are passed as JSON arrays of finite numbers. `-` reads from `ctx.stdin`.
 # Create + bulk index + search
 vec create docs --dim 1536 --quantize int8 --ivf-clusters 64
 cat embeddings.jsonl | vec store-batch docs -
+vec ivf build docs                                  # one-time k-means
 EMB=$(curl -s api.../embeddings -d "{\"input\":\"$Q\"}" | jq '.data[0].embedding')
 vec search docs "$EMB" --k 5 | jq '.[] | {id, score}'
 
 # Cross-collection RAG
 vec search-across "docs,faq,tickets" "$EMB" --k 3
+
+# Backup + restore (canonical migration path between quantizations)
+vec export docs > docs.json
+vec drop docs
+vec create docs --dim 1536 --quantize float32   # change quantize
+jq -c '.records' docs.json | vec import docs -
 ```
