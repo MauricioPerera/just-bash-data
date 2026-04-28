@@ -3,6 +3,7 @@
 [![npm](https://img.shields.io/npm/v/just-bash-data.svg)](https://www.npmjs.com/package/just-bash-data)
 [![CI](https://github.com/MauricioPerera/just-bash-data/actions/workflows/ci.yml/badge.svg)](https://github.com/MauricioPerera/just-bash-data/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![CHANGELOG](https://img.shields.io/badge/CHANGELOG-md-blue.svg)](CHANGELOG.md)
 
 A plugin for [`just-bash`](https://github.com/vercel-labs/just-bash) that gives an in-shell agent two structured-data commands:
 

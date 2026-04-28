@@ -1,0 +1,99 @@
+# Changelog
+
+All notable changes to `just-bash-data` are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.3.1] — 2026-04-28
+
+### Fixed
+
+- **H-3: per-handler empty-string policy.** The blanket `''` → `{}` alias added in v0.3.0 was applied universally inside `parseJson`, producing inconsistent and dangerous behavior on destructive handlers:
+  - `db users insert ''` silently created an empty doc
+  - `db users remove ''` silently removed the first matching doc
+  - `db users update '' '...'` silently updated all matches
+  - `db users aggregate ''` failed with `pipeline must be array`
+
+  `parseJson` is now policy-aware. Each handler opts into one of three policies:
+
+  | Policy | `''` handling | Used by |
+  |---|---|---|
+  | `filter` | becomes `{}` (match-all) | `find`, `count` |
+  | `pipeline` | becomes `[]` (no-op) | `aggregate` |
+  | `reject` | exit 2 with `<field> cannot be empty` | `insert`, `update`, `remove`, `import`, `find` options object |
+
+- `importHandler` error messages now report the failing item index (`import item at index 847 is not an object`) instead of a generic message.
+- `buildCursor` cleaned up a redundant `number → string → number` conversion when reading skip/limit from the options object.
+
+### Added
+
+- 10 new tests covering the H-3 policy matrix and edge cases (export of empty collection, import error indexing). Total suite: **125/125**.
+
+### Compatibility
+
+Read paths (`find`/`count`/`aggregate`) unchanged from v0.3.0. Destructive paths now reject `''`. Behavior change is technically breaking but no benchmark model relied on `''` for destructive operations.
+
+## [0.3.0] — 2026-04-28
+
+### Added
+
+- **A1: empty-string filter alias.** `db users find ''` is treated as `db users find '{}'` (match-all). Same for `count`. Several models in the benchmark emitted `''` for "no filter" and now succeed without retries.
+- **A2: Mongo-style options object as second positional in `find`.** `db users find '{}' '{"sort":{"age":-1},"limit":10}'` works alongside the flag form. When both are present, flags win. Granite and Llama 4 Scout both emitted this Mongo idiom in the benchmark.
+- **B1: `db <coll> export`.** Returns `{exported: N, docs: [...]}`. Symmetric with `vec export`.
+- **B2: `db <coll> import <docs-json>`.** Accepts an array of documents from positional arg or stdin (`-`). Symmetric with `vec import`.
+- `examples/smoke/embeddinggemma-demo.mjs`: end-to-end demo using `@cf/google/embeddinggemma-300m` for multilingual semantic search (en/es/ja/ar/hi × 3 concepts) into the `vec` store, plus matryoshka prefix search at 768 / 512 / 256 / 128 dim.
+- 8 new tests covering A1, A2, and the export/import roundtrip. Total suite: **115/115** (was 107).
+
+### Changed
+
+- AGENTS.md: new "Mongo-style aliases" section.
+- specs/cmd-db.md: `find` updated with options object semantics; new `export` and `import` subcommand sections.
+
+### Compatibility
+
+Zero breaking changes — all additions are permissive aliases on previously-rejected input.
+
+## [0.2.0] — 2026-04-28
+
+### Added
+
+- **`{"$sum": 1}` alias for `{"$count": 1}` in `aggregate $group`.** 7 of 8 models in the agent benchmark defaulted to the MongoDB idiom `{"$sum": 1}` for counting items per group, even with the canonical `$count` form documented in the system prompt. The pattern proved unbreakable for some models — Llama 3.2 11B Vision rewrote `$sum: 1` even when given a verbatim copy instruction with `$count: 1` literally in the prompt.
+
+  `aggregateHandler` now rewrites `{"$sum": <number>}` to `{"$count": 1}` automatically. `{"$sum": "$field"}` (string operand) is unchanged.
+
+- 2 new tests (Mongo idiom counting + non-string operand still computes field sum). Total suite: **107/107**.
+
+### Empirical impact
+
+Re-tested 3 models against v0.2.0 with identical prompts:
+
+| Model | v0.1.0 | v0.2.0 |
+|---|---|---|
+| Llama 3.2 11B-V | 6/7 incomplete (5 turns, 71%) | **7/7 complete** (2 turns, 100%) |
+| GPT-OSS-20B | 7/7 (2 turns, 92%) | 7/7 (1 turn, 100%) |
+| Granite 4.0 | 7/7 (3 turns, 81%) | 7/7 (1 turn, 100%) |
+
+Cumulative cost reduction across the 3 retested models: **−32% per task** vs v0.1.0.
+
+## [0.1.0] — 2026-04-27
+
+### Added
+
+- Initial public release.
+- Two custom commands for [`just-bash`](https://github.com/vercel-labs/just-bash) giving an in-shell agent structured-data capabilities:
+  - **`db`** — MongoDB-style document store via [`js-doc-store`](https://github.com/MauricioPerera/js-doc-store): CRUD, indexes, aggregations, JWT auth, RBAC, optional AES-256-GCM at rest.
+  - **`vec`** — vector similarity search via [`js-vector-store`](https://github.com/MauricioPerera/js-vector-store): float32 + int8 + polar + binary quantizations, matryoshka, cross-collection search.
+- Architecture: `MemoryAdapter` (sync, Map-backed) + `Persister` (async hydrate + atomic flush via `<name>.tmp` + `fs.mv`, serialized chain) + optional encryption sandwich.
+- Single registry per `IFileSystem` (cached via `WeakMap`); each `Bash` instance gets isolated state automatically.
+- Build via tsup: dual ESM + CJS + `.d.ts`. Strict TypeScript, no `any`.
+- 105 unit tests across 10 vitest suites + 181 E2E assertions in `examples/smoke/smoke-full.mjs` covering every subcommand, every Mongo operator, every documented exit code, encryption round-trip, and cross-instance persistence.
+- MIT license, CI workflow on push/PR, GitHub Actions auto-publish on tag (added in 0.3.1 follow-up commit).
+
+### Known limitations at release
+
+- TypeScript consumers need `--skipLibCheck` due to an upstream `just-bash@2.14.3` packaging issue (its published `.d.ts` references files not included in the npm tarball). This plugin's own types are clean.
+- `vec stats` does not include `sizeBytes`.
+- `searchAcross` is implemented locally in this plugin (per-collection store architecture). Functionally equivalent to upstream for non-IVF cases.
+
+[0.3.1]: https://github.com/MauricioPerera/just-bash-data/releases/tag/v0.3.1
+[0.3.0]: https://github.com/MauricioPerera/just-bash-data/releases/tag/v0.3.0
+[0.2.0]: https://github.com/MauricioPerera/just-bash-data/releases/tag/v0.2.0
+[0.1.0]: https://github.com/MauricioPerera/just-bash-data/releases/tag/v0.1.0
