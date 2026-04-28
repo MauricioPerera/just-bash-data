@@ -77,6 +77,22 @@ export class MemoryAdapter {
     return out;
   }
 
+  /**
+   * Re-mark entries as dirty after a partial flush failure. The persister
+   * calls this with the entries that did NOT successfully reach disk, so
+   * the next flush retries them. Without this, takeDirty() on a partial
+   * failure would silently drop pending writes.
+   */
+  restoreDirty(d: {
+    jsonChanged?: Iterable<string>;
+    binChanged?: Iterable<string>;
+    deleted?: Iterable<string>;
+  }): void {
+    if (d.jsonChanged) for (const n of d.jsonChanged) this.jsonDirty.add(n);
+    if (d.binChanged) for (const n of d.binChanged) this.binDirty.add(n);
+    if (d.deleted) for (const n of d.deleted) this.deletedSet.add(n);
+  }
+
   hasDirty(): boolean {
     return (
       this.jsonDirty.size > 0 ||
@@ -98,10 +114,22 @@ export class EncryptedBinAdapter {
   private readonly key: CryptoKey;
   private readonly cache = new Map<string, Uint8Array>();
   private readonly pending = new Set<string>();
+  /**
+   * Names that failed to decrypt during preload. Surfaces a real failure
+   * mode that would otherwise be invisible: a wrong key or corrupt ciphertext
+   * caches as an empty buffer (so no plaintext leaks), but the user / agent
+   * has no way to distinguish "empty collection" from "decrypt failed".
+   * `vec stats` reads this Set to report `corrupted: true`.
+   */
+  private readonly corruptedSet = new Set<string>();
 
   private constructor(inner: MemoryAdapter, key: CryptoKey) {
     this.inner = inner;
     this.key = key;
+  }
+
+  isCorrupted(name: string): boolean {
+    return this.corruptedSet.has(name);
   }
 
   static async create(
@@ -172,7 +200,12 @@ export class EncryptedBinAdapter {
         );
         this.cache.set(name, new Uint8Array(pt));
       } catch {
+        // Decryption failed (wrong key, tampered ciphertext, truncated IV,
+        // or corrupt body). Cache as empty to keep the no-plaintext-leak
+        // property, but ALSO mark as corrupted so callers can distinguish
+        // "wrong key / corrupt" from "legitimately empty".
         this.cache.set(name, new Uint8Array(0));
+        this.corruptedSet.add(name);
       }
     }
   }

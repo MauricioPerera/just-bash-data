@@ -3,8 +3,10 @@ import { flagBool, flagString, type ParsedArgs } from "../../lib/args.js";
 import { CommandError, EXIT } from "../../lib/errors.js";
 import type { PluginRegistry } from "../../registry.js";
 import {
+  checkVectorRecord,
   parseVectorJson,
   requireVecColl,
+  validateCollName,
   validateMetric,
   validateQuantize,
 } from "./shared.js";
@@ -16,6 +18,7 @@ export const createOp = async (
 ): Promise<{ stdout: string }> => {
   const coll = parsed.positional[1];
   if (!coll) throw new CommandError(EXIT.USAGE, "usage: vec create <coll> --dim N");
+  validateCollName(coll);
   if (reg.getVectorCollection(coll)) {
     throw new CommandError(EXIT.VALIDATION, `validation: collection exists: ${coll}`);
   }
@@ -208,33 +211,20 @@ export const storeBatchOp = async (
       skip(i + 1, "invalid json");
       continue;
     }
-    if (!parsedRec || typeof parsedRec !== "object" || Array.isArray(parsedRec)) {
-      skip(i + 1, "not an object");
+    const check = checkVectorRecord(parsedRec, entry.dim);
+    if (!check.ok) {
+      skip(i + 1, check.reason);
       continue;
+    }
+    if (entry.store.has(coll, check.id)) {
+      throw new CommandError(EXIT.VALIDATION, `validation: id collision: ${check.id}`);
     }
     const rec = parsedRec as Record<string, unknown>;
-    const recId = rec["id"];
-    const recVec = rec["vector"];
-    if (typeof recId !== "string" || !Array.isArray(recVec)) {
-      skip(i + 1, "missing id or vector");
-      continue;
-    }
-    if (recVec.some((n) => typeof n !== "number" || !Number.isFinite(n))) {
-      skip(i + 1, "non-finite numbers in vector");
-      continue;
-    }
-    if (recVec.length !== entry.dim) {
-      skip(i + 1, `dim mismatch (${recVec.length} vs ${entry.dim})`);
-      continue;
-    }
-    if (entry.store.has(coll, recId)) {
-      throw new CommandError(EXIT.VALIDATION, `validation: id collision: ${recId}`);
-    }
     const recMeta = rec["meta"];
     const meta = recMeta && typeof recMeta === "object" && !Array.isArray(recMeta)
       ? (recMeta as Record<string, unknown>)
       : {};
-    entry.store.set(coll, recId, recVec as number[], meta);
+    entry.store.set(coll, check.id, check.vector, meta);
     stored++;
   }
   return { stdout: JSON.stringify({ stored, skipped, errors }) };
@@ -380,6 +370,12 @@ export const statsOp = async (
     binBytes,
     metaBytes,
   };
+  // When encryption is on, surface decrypt failure as a distinct signal so
+  // the agent can tell "wrong key / tampered file" apart from "empty
+  // collection" (both look like count=0 otherwise).
+  if (reg.encBin && reg.encBin.isCorrupted(`${coll}${suffix}.bin`)) {
+    out["corrupted"] = true;
+  }
   if (entry.ivfIndex && entry.ivf) {
     out["ivf"] = {
       built: entry.ivfIndex.hasIndex(coll),
@@ -445,6 +441,18 @@ export const importOp = async (
   }
   if (!Array.isArray(parsedInput)) {
     throw new CommandError(EXIT.VALIDATION, "validation: import expects an array of records");
+  }
+  // Validate every record before handing off to upstream — surface clear
+  // errors with the offending index instead of letting upstream throw an
+  // opaque "Cannot read property" mid-import.
+  for (let i = 0; i < parsedInput.length; i++) {
+    const check = checkVectorRecord(parsedInput[i], entry.dim);
+    if (!check.ok) {
+      throw new CommandError(
+        EXIT.VALIDATION,
+        `validation: import record at index ${i}: ${check.reason}`,
+      );
+    }
   }
   entry.store.import(
     coll,

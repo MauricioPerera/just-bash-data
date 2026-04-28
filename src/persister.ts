@@ -114,18 +114,40 @@ export class Persister {
     const jsonSnap = mem.snapshotJson();
     const binSnap = mem.snapshotBin();
 
-    for (const name of dirty.jsonChanged) {
-      const data = jsonSnap.get(name);
-      if (data === undefined) continue;
-      await this.atomicWrite(name, JSON.stringify(data), "utf8");
-    }
-    for (const name of dirty.binChanged) {
-      const data = binSnap.get(name);
-      if (!data) continue;
-      await this.atomicWrite(name, data);
-    }
-    for (const name of dirty.deleted) {
-      await this.fs.rm(this.absPath(name), { force: true });
+    // Track entries that have NOT yet reached disk. If atomicWrite throws
+    // mid-loop, restoreDirty re-marks the unwritten ones so the next flush
+    // retries — preventing silent data loss from a transient FS error
+    // (ENOSPC, EBUSY, antivirus lock, etc.).
+    const remainingJson = new Set(dirty.jsonChanged);
+    const remainingBin = new Set(dirty.binChanged);
+    const remainingDeleted = new Set(dirty.deleted);
+
+    try {
+      for (const name of dirty.jsonChanged) {
+        const data = jsonSnap.get(name);
+        if (data !== undefined) {
+          await this.atomicWrite(name, JSON.stringify(data), "utf8");
+        }
+        remainingJson.delete(name);
+      }
+      for (const name of dirty.binChanged) {
+        const data = binSnap.get(name);
+        if (data) {
+          await this.atomicWrite(name, data);
+        }
+        remainingBin.delete(name);
+      }
+      for (const name of dirty.deleted) {
+        await this.fs.rm(this.absPath(name), { force: true });
+        remainingDeleted.delete(name);
+      }
+    } catch (err) {
+      mem.restoreDirty({
+        jsonChanged: remainingJson,
+        binChanged: remainingBin,
+        deleted: remainingDeleted,
+      });
+      throw err;
     }
   }
 

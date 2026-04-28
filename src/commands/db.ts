@@ -1,6 +1,6 @@
 import { defineCommand, type Command, type IFileSystem } from "just-bash";
 import { parseCommandArgs } from "../lib/args.js";
-import { CommandError, EXIT } from "../lib/errors.js";
+import { CommandError, EXIT, validateCollName } from "../lib/errors.js";
 import { runCommand } from "../lib/runner.js";
 import type { PluginRegistry } from "../registry.js";
 import { authHandler } from "./db/auth.js";
@@ -53,6 +53,7 @@ export const buildDbCommand = (provide: RegistryProvider): Command =>
         mutated = sub === "register" || sub === "login" || sub === "logout" || sub === "role";
       } else {
         const coll = first;
+        validateCollName(coll);
         const sub = parsed.positional[1];
         if (!sub) {
           throw new CommandError(

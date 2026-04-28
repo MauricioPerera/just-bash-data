@@ -2,6 +2,40 @@
 
 All notable changes to `just-bash-data` are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] — 2026-04-28
+
+### Fixed
+
+Five bugs surfaced by post-1.0.0 code review. All fixes are non-breaking (PATCH semver):
+
+- **🔴 Path traversal in collection names.** `db ../escape insert ...` would resolve through `Persister.absPath` to a path outside `rootDir` and write `<rootDir>/../escape.docs.json` on disk-backed `IFileSystem` implementations. Added `validateCollName(name)` matching `^[a-zA-Z0-9_][a-zA-Z0-9_-]{0,63}$` (no dots, slashes, or `..` components) and wired it into:
+  - `db.ts` dispatcher (covers all `db <coll>` subcommands in one call)
+  - `vec/shared.ts:requireVecColl` (covers all read/mutate ops on existing collections)
+  - `vec/ops.ts:createOp` (covers the creation path explicitly)
+  - Internal manifest filenames (`_users`, `_sessions`, `_vec.registry.json`) are written by hardcoded constants and bypass the check by design.
+
+- **🟡 Dirty-marker loss on partial flush failure.** `Persister.doFlush` called `mem.takeDirty()` upfront, draining all pending writes. If `atomicWrite` then threw mid-loop (ENOSPC, EBUSY, antivirus lock, etc.), the unwritten entries silently lost their dirty markers — the next flush would no-op and the data would never reach disk. Now wraps the write loop in try/catch and calls a new `MemoryAdapter.restoreDirty()` to re-mark unwritten entries before re-throwing.
+
+- **🟡 `db stats sizeBytes` reported chars instead of UTF-8 bytes.** `JSON.stringify(docs).length` is the UTF-16 code-unit count; multi-byte characters (Spanish accents, Japanese, emoji) caused under-reporting. Now uses `new TextEncoder().encode(...).byteLength`, matching `vec stats`'s convention.
+
+- **🟡 `vec import` skipped runtime validation.** Records were `as`-cast to the upstream type without verifying `id: string`, `vector: number[]`, finiteness, or dim match — a malformed input would propagate as an opaque upstream error. Extracted `checkVectorRecord()` from `storeBatchOp`'s line-by-line validator and reused it; `vec import` now rejects with `validation: import record at index N: <reason>` (exit 5) instead of crashing late.
+
+- **🟡 `EncryptedBinAdapter` masked corruption as "empty collection".** When `preload()` failed to decrypt (wrong key, tampered ciphertext, truncated IV), the cache was set to a zero-length buffer. The no-plaintext-leak property held, but the operator had no way to distinguish "wrong key" from "legit empty collection" — both showed `count: 0`. Added a `corruptedSet` and `isCorrupted(name)` getter; `vec stats` now surfaces `corrupted: true` when applicable.
+
+### Added
+
+- `MemoryAdapter.restoreDirty(d)` — re-mark entries dirty after partial failure (used internally by Persister).
+- `EncryptedBinAdapter.isCorrupted(name)` — query whether a name failed decryption during preload.
+- `validateCollName(name)` exported from `src/lib/errors.ts`.
+- `checkVectorRecord(rec, dim)` — discriminated-union validator shared by `store-batch` and `import`.
+- 21 new targeted tests in `tests/v101-fixes.test.ts`. Total suite: **251/251** (was 230).
+
+### Compatibility
+
+All five fixes are non-breaking. The strictest contract change is `validateCollName`: collection names that previously slipped through (`foo.bar`, `with space`) now reject with exit 2. These names would have caused subtle bugs (filename collisions, path traversal, etc.) and were never officially supported — the conservative regex is enforcement of an implicit invariant.
+
+The 8-model agent transcript replay still produces 103/107 exit 0 (96.3%) — zero regressions from the fixes.
+
 ## [1.0.0] — 2026-04-28
 
 ### Stability commitment
@@ -377,6 +411,7 @@ Cumulative cost reduction across the 3 retested models: **−32% per task** vs v
 - `vec stats` does not include `sizeBytes`.
 - `searchAcross` is implemented locally in this plugin (per-collection store architecture). Functionally equivalent to upstream for non-IVF cases.
 
+[1.0.1]: https://github.com/MauricioPerera/just-bash-data/releases/tag/v1.0.1
 [1.0.0]: https://github.com/MauricioPerera/just-bash-data/releases/tag/v1.0.0
 [0.8.1]: https://github.com/MauricioPerera/just-bash-data/releases/tag/v0.8.1
 [0.8.0]: https://github.com/MauricioPerera/just-bash-data/releases/tag/v0.8.0

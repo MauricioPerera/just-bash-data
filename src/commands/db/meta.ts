@@ -83,7 +83,12 @@ export const statsHandler = async (
   ensureCollExists(reg, coll);
   const c = reg.getDocStore().collection(coll);
   const docs = reg.mem.readJson(`${coll}.docs.json`);
-  const sizeBytes = docs ? JSON.stringify(docs).length : 0;
+  // UTF-8 byte length, not String.length (which is UTF-16 code-unit count).
+  // Matches `vec stats`'s convention so users can compare across the two
+  // commands without surprises on non-ASCII data.
+  const sizeBytes = docs
+    ? new TextEncoder().encode(JSON.stringify(docs)).byteLength
+    : 0;
   return {
     stdout: JSON.stringify({
       count: c.count(),
