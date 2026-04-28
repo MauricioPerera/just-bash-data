@@ -315,7 +315,12 @@ describe("v0.5.0 IVF index", () => {
   it("ivf stats reports numClusters + numProbes + numVectors after build", async () => {
     const h = buildSearchHarness();
     okJson(await h.run(["create", "x", "--dim", "4", "--ivf-clusters", "2", "--ivf-probes", "2"]));
-    for (const [id, v] of [["a","[1,0,0,0]"],["b","[0,1,0,0]"],["c","[0,0,1,0]"]]) {
+    const points: Array<[string, string]> = [
+      ["a", "[1,0,0,0]"],
+      ["b", "[0,1,0,0]"],
+      ["c", "[0,0,1,0]"],
+    ];
+    for (const [id, v] of points) {
       okJson(await h.run(["store", "x", id, v]));
     }
     okJson(await h.run(["ivf", "build", "x"]));
@@ -349,7 +354,12 @@ describe("v0.5.0 IVF index", () => {
   it("search --no-ivf bypasses the index even when built", async () => {
     const h = buildSearchHarness();
     okJson(await h.run(["create", "x", "--dim", "4", "--ivf-clusters", "2", "--ivf-probes", "2"]));
-    for (const [id, v] of [["a","[1,0,0,0]"],["b","[0,1,0,0]"],["c","[0,0,1,0]"]]) {
+    const points: Array<[string, string]> = [
+      ["a", "[1,0,0,0]"],
+      ["b", "[0,1,0,0]"],
+      ["c", "[0,0,1,0]"],
+    ];
+    for (const [id, v] of points) {
       okJson(await h.run(["store", "x", id, v]));
     }
     okJson(await h.run(["ivf", "build", "x"]));

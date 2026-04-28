@@ -19,10 +19,12 @@ Vectors are passed as JSON arrays of finite numbers. `-` reads from `ctx.stdin`.
 
 ## Subcommands
 
-### `vec create <coll> --dim N [--quantize float32|int8|polar|binary] [--metric cosine|euclidean|dot|manhattan] [--ivf-clusters N --ivf-probe N]`
-- Creates a new collection. Default: `--quantize float32 --metric cosine`. IVF index optional.
-- stdout: `{ "coll": "...", "dim": N, "quantize": "...", "metric": "...", "ivf": bool }`
-- exit: 0 | 2 | 5 (already exists)
+### `vec create <coll> --dim N [--quantize float32|int8|polar|binary] [--metric cosine|euclidean|dot|manhattan] [--ivf [--ivf-clusters N=100] [--ivf-probes N=10]]`
+- Creates a new collection. Default: `--quantize float32 --metric cosine`.
+- Optional IVF index: pass `--ivf` (or any `--ivf-*` flag implicitly enables it). `--ivf-probes` must not exceed `--ivf-clusters`.
+- stdout: `{coll, dim, quantize, metric}` plus `ivf: {numClusters, numProbes}` when configured.
+- After creating with `--ivf`, insert vectors and run `vec ivf build <coll>` to compute clusters before searching.
+- exit: 0 | 2 (bad flags) | 5 (already exists)
 
 ### `vec store <coll> <id> <vector-json> [--meta <json>]`
 - `<vector-json>` may be `-` to read from stdin. `--meta` defaults to `{}`.
