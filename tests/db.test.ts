@@ -562,6 +562,132 @@ describe("v0.8.0: filter operator $-prefix validation", () => {
   });
 });
 
+describe("v0.8.1: pipeline + update operator validation", () => {
+  let h: Harness;
+  beforeEach(() => {
+    h = buildHarness();
+  });
+
+  it("aggregate rejects bareword stage names with $ hint", async () => {
+    await h.run(["x", "insert", '{"genre":"scifi"}']);
+    const r = await h.run(["x", "aggregate", "[{match: {genre: 'scifi'}}]"]);
+    expect(r.exitCode).toBe(5);
+    expect(r.stderr).toContain("$match");
+    expect(r.stderr).toContain("[0].match");
+  });
+
+  it("aggregate rejects bareword stage names at index > 0", async () => {
+    await h.run(["x", "insert", '{"a":1}']);
+    const r = await h.run([
+      "x",
+      "aggregate",
+      "[{$match: {a: 1}}, {group: {_id: null}}]",
+    ]);
+    expect(r.exitCode).toBe(5);
+    expect(r.stderr).toContain("$group");
+    expect(r.stderr).toContain("[1].group");
+  });
+
+  it("aggregate recurses filter validation into $match value", async () => {
+    await h.run(["x", "insert", '{"year":1965}']);
+    const r = await h.run([
+      "x",
+      "aggregate",
+      "[{$match: {year: {gt: 1950}}}]",
+    ]);
+    expect(r.exitCode).toBe(5);
+    expect(r.stderr).toContain("$gt");
+  });
+
+  it("aggregate flags bareword $-less group accumulators", async () => {
+    await h.run(["x", "insert", '{"genre":"scifi","amount":10}']);
+    const r = await h.run([
+      "x",
+      "aggregate",
+      "[{$group: {_id: '$genre', total: {sum: '$amount'}}}]",
+    ]);
+    expect(r.exitCode).toBe(5);
+    expect(r.stderr).toContain("$sum");
+    expect(r.stderr).toContain("[0].$group.total.sum");
+  });
+
+  it("aggregate happy path unchanged: canonical pipeline succeeds", async () => {
+    await h.run(["x", "insert", '{"genre":"scifi"}']);
+    await h.run(["x", "insert", '{"genre":"scifi"}']);
+    await h.run(["x", "insert", '{"genre":"fantasy"}']);
+    const r = okJson<Array<{ _id: string; n: number }>>(
+      await h.run([
+        "x",
+        "aggregate",
+        "[{$group: {_id: '$genre', n: {$count: 1}}}]",
+      ]),
+    );
+    expect(Object.fromEntries(r.map((x) => [x._id, x.n]))).toEqual({
+      scifi: 2,
+      fantasy: 1,
+    });
+  });
+
+  it("v0.2.0 $sum:1 → $count:1 alias still works (must not regress)", async () => {
+    await h.run(["x", "insert", '{"genre":"scifi"}']);
+    await h.run(["x", "insert", '{"genre":"scifi"}']);
+    const r = okJson<Array<{ _id: string; n: number }>>(
+      await h.run([
+        "x",
+        "aggregate",
+        '[{"$group": {"_id": "$genre", "n": {"$sum": 1}}}]',
+      ]),
+    );
+    expect(r[0]?.n).toBe(2);
+  });
+
+  it("update rejects bareword update operators", async () => {
+    await h.run(["x", "insert", '{"name":"Alice","age":30}']);
+    const r = await h.run(["x", "update", '{"name":"Alice"}', '{set: {age: 31}}']);
+    expect(r.exitCode).toBe(5);
+    expect(r.stderr).toContain("$set");
+  });
+
+  it("update happy path unchanged: $set works", async () => {
+    await h.run(["x", "insert", '{"name":"Alice","age":30}']);
+    const r = okJson<{ matched: number; modified: number }>(
+      await h.run(["x", "update", '{"name":"Alice"}', '{"$set":{"age":31}}']),
+    );
+    expect(r.modified).toBe(1);
+  });
+
+  it("update does NOT recurse into $set value (field literally named 'push' is fine)", async () => {
+    await h.run(["x", "insert", '{"name":"Alice"}']);
+    const r = okJson<{ modified: number }>(
+      await h.run([
+        "x",
+        "update",
+        '{"name":"Alice"}',
+        '{"$set":{"push":"sticky","set":42}}',
+      ]),
+    );
+    expect(r.modified).toBe(1);
+    const found = okJson<Array<Record<string, unknown>>>(
+      await h.run(["x", "find", "{}"]),
+    );
+    expect(found[0]).toMatchObject({ push: "sticky", set: 42 });
+  });
+
+  it("flags every update operator name with $-hint", async () => {
+    await h.run(["x", "insert", '{"y":1}']);
+    for (const op of ["set", "unset", "inc", "push", "pull", "rename"]) {
+      const r = await h.run([
+        "x",
+        "update",
+        '{"y":1}',
+        `{${op}: {z: 1}}`,
+      ]);
+      expect(r.exitCode).toBe(5);
+      expect(r.stderr).toContain(`$${op}`);
+    }
+  });
+});
+
 describe("db indexes", () => {
   let h: Harness;
   beforeEach(() => {

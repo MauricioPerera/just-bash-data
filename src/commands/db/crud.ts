@@ -7,6 +7,8 @@ import {
   isFilter,
   parseJson,
   requireAuth,
+  validatePipeline,
+  validateUpdateOperators,
 } from "./shared.js";
 
 export const insertHandler = async (
@@ -128,6 +130,7 @@ export const updateHandler = async (
   // Empty filter '' is rejected for destructive ops — agent must write '{}' explicitly.
   const filter = parseJson(parsed.positional[2], ctx, "filter", "reject", true);
   const update = parseJson(parsed.positional[3], ctx, "update", "reject");
+  validateUpdateOperators(update, "update");
   if (!isFilter(filter) || !isFilter(update)) {
     throw new CommandError(EXIT.USAGE, "filter and update must be objects");
   }
@@ -181,6 +184,7 @@ export const aggregateHandler = async (
   if (!Array.isArray(pipeline)) {
     throw new CommandError(EXIT.USAGE, "pipeline must be an array");
   }
+  validatePipeline(pipeline, "pipeline");
   let pipe = reg.getDocStore().collection(coll).aggregate();
   for (const stage of pipeline) {
     if (!isFilter(stage)) {

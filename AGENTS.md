@@ -97,7 +97,13 @@ To reduce friction with models trained on MongoDB conventions:
 
 - **Dot-syntax sentinels (v0.7.0+)**: if you emit MongoDB-shell-style `db.books find '{}'`, bash will dispatch to the literal command `db.books` (not `db` with an arg). For ~30 common collection names the plugin pre-registers a sentinel that responds with `exit 2` and a redirect message pointing at the canonical space-separated form `db books find '{}'`. **The parenthesised form `db.books.find(...)` is rejected by bash itself before any command dispatch — it is uninterceptable.** Always use `<tool> <coll> <subcommand>` (space-separated, no dots, no parens).
 
-- **Operator $-prefix validation (v0.8.0+)**: filter operators MUST be `$`-prefixed. The lenient JSON parser will happily quote bareword keys (`{gt: 1950}` → `{"gt": 1950}`), but the validator catches `gt` / `lt` / `eq` / `in` / `or` / etc. without `$` and rejects with **exit 5** + a "did you mean `$gt`?" hint that includes the path of the offending key. Applies to all four filter handlers: `find`, `count`, `update`, `remove`. Aggregate pipeline stages and update operators (`$set` / `$inc` / …) are not yet validated.
+- **Operator $-prefix validation (v0.8.0+, expanded in v0.8.1)**: every operator MUST be `$`-prefixed. The lenient JSON parser will happily quote bareword keys (`{gt: 1950}` → `{"gt": 1950}`), but the validator catches non-`$` operator names and rejects with **exit 5** + a "did you mean `$gt`?" hint that includes the offending path. Coverage as of v0.8.1:
+  - **Filter operators** (in `find`, `count`, `update`, `remove`): `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `in`, `nin`, `exists`, `regex`, `contains`, `size`, `and`, `or`, `not`
+  - **Pipeline stages** (in `aggregate`): `match`, `lookup`, `group`, `sort`, `limit`, `skip`, `project`, `unwind`
+  - **Group accumulators** (inside `$group`): `count`, `sum`, `avg`, `min`, `max`, `push`, `first`, `last`
+  - **Update operators** (in `update`'s second arg, top-level only): `set`, `unset`, `inc`, `push`, `pull`, `rename`
+
+  Update operator validation does NOT recurse into values, so `{"$set": {"push": "sticky"}}` (a legit field assignment) is accepted.
 
 ### IVF index for vector search (v0.5.0+)
 

@@ -2,6 +2,39 @@
 
 All notable changes to `just-bash-data` are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] — 2026-04-28
+
+### Added
+
+- **Pipeline + update operator $-prefix validation.** Extends the v0.8.0 filter validation to two more shapes the lenient JSON parser used to silently mistranslate:
+
+  | Shape | Catches | Example error |
+  |---|---|---|
+  | Pipeline stage names | `[{match: {...}}]` | `pipeline stage 'match' at [0].match is missing $ prefix — did you mean '$match'?` |
+  | `$match` value (recursive) | `[{$match: {year: {gt: 1950}}}]` | `pipeline[0].$match operator 'gt' at year.gt is missing $ prefix — did you mean '$gt'?` |
+  | `$group` accumulators | `[{$group: {_id: null, n: {sum: 1}}}]` | `pipeline accumulator 'sum' at [0].$group.n.sum is missing $ prefix — did you mean '$sum'?` |
+  | Update operators | `{set: {x: 1}}` | `update operator 'set' is missing $ prefix — did you mean '$set'?` |
+
+  All produce **exit 5** with location info. Improves the previous behavior where `aggregate` would generic-throw `unknown aggregation operator: match` (exit 2) without naming the canonical fix.
+
+- 18 new unit tests in `tests/lib/pipeline-update-operators.test.ts` + 10 new integration tests in `tests/db.test.ts`. Total suite: **230/230** (was 202).
+
+### Operator sets
+
+- **Pipeline stages**: `match`, `lookup`, `group`, `sort`, `limit`, `skip`, `project`, `unwind`
+- **Group accumulators**: `count`, `sum`, `avg`, `min`, `max`, `push`, `first`, `last`
+- **Update operators**: `set`, `unset`, `inc`, `push`, `pull`, `rename`
+
+### Compatibility
+
+- Strict canonical forms (`$match`, `$set`, etc.) are unchanged.
+- The v0.2.0 `{"$sum": <number>}` → `{"$count": 1}` rewrite is preserved (regression test added).
+- **Update operator validation only inspects top-level keys** — values are never recursed. So `{$set: {push: "sticky", set: 42}}` (legitimate field assignments named after operators) is accepted. Pipeline stage validation only inspects per-stage top level + `$match`/`$group` value recursion; `$project`/`$sort`/etc. values are user data and not walked.
+
+### Caveats
+
+- Same false-positive boundary as v0.8.0 applies: a pipeline literally typed as `[{match: {...}}]` because the user wants a stage NAMED `match` (impossible in canonical Mongo) will be rejected. Acceptable since no legitimate Mongo aggregation has unprefixed stage names.
+
 ## [0.8.0] — 2026-04-28
 
 ### Added
@@ -232,6 +265,7 @@ Cumulative cost reduction across the 3 retested models: **−32% per task** vs v
 - `vec stats` does not include `sizeBytes`.
 - `searchAcross` is implemented locally in this plugin (per-collection store architecture). Functionally equivalent to upstream for non-IVF cases.
 
+[0.8.1]: https://github.com/MauricioPerera/just-bash-data/releases/tag/v0.8.1
 [0.8.0]: https://github.com/MauricioPerera/just-bash-data/releases/tag/v0.8.0
 [0.7.0]: https://github.com/MauricioPerera/just-bash-data/releases/tag/v0.7.0
 [0.6.0]: https://github.com/MauricioPerera/just-bash-data/releases/tag/v0.6.0

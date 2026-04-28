@@ -166,6 +166,107 @@ export const validateFilterOperators = (
   }
 };
 
+/**
+ * Aggregation pipeline stages. v0.8.1 detects bareword stage names
+ * (`{match: {...}}` instead of `{$match: {...}}`) at the top level of each
+ * pipeline element and rejects with exit 5 + `did you mean '$match'?`.
+ *
+ * Without this, the v0.6.0 lenient JSON parser cheerfully relaxes
+ * `{match: {...}}` into `{"match": {...}}`, and the aggregate handler then
+ * throws the generic `unknown aggregation operator: match` (exit 2). The
+ * targeted validator gives the agent a precise corrective hint.
+ */
+const PIPELINE_STAGE_NAMES: ReadonlySet<string> = new Set([
+  "match", "lookup", "group", "sort", "limit", "skip", "project", "unwind",
+]);
+
+/**
+ * `$group` accumulator names. Validation only runs at the value-position
+ * INSIDE a `$group` stage (after the `_id` key), where the value is an
+ * accumulator descriptor like `{$count: 1}` or `{$sum: "$amount"}`.
+ *
+ * Note `push` overlaps with the update-operator set — that's fine, the
+ * error message still resolves to `$push` correctly in this context.
+ */
+const GROUP_ACCUMULATOR_NAMES: ReadonlySet<string> = new Set([
+  "count", "sum", "avg", "min", "max", "push", "first", "last",
+]);
+
+/**
+ * Update operators that must appear at the top level of the update doc.
+ * `db update <filter> <update>` rejects bareword forms like `{set: {x: 1}}`
+ * with a `did you mean '$set'?` redirect. We only check the top level —
+ * field names INSIDE `$set`/`$unset`/etc. values are arbitrary user data
+ * and never validated.
+ */
+const UPDATE_OPERATOR_NAMES: ReadonlySet<string> = new Set([
+  "set", "unset", "inc", "push", "pull", "rename",
+]);
+
+/**
+ * Validates an aggregation pipeline. Walks each stage and flags:
+ *  - bareword stage names at the top of each stage object (`match` → `$match`)
+ *  - bareword filter operators inside `$match` value (delegated to filter validator)
+ *  - bareword accumulator names inside `$group` value-position objects
+ *
+ * Non-array input is left for the handler to reject with its existing
+ * "pipeline must be an array" usage error.
+ */
+export const validatePipeline = (pipeline: unknown, fieldName: string): void => {
+  if (!Array.isArray(pipeline)) return;
+  for (let i = 0; i < pipeline.length; i++) {
+    const stage = pipeline[i];
+    if (typeof stage !== "object" || stage === null || Array.isArray(stage)) continue;
+    const stageObj = stage as Record<string, unknown>;
+    for (const [stageKey, stageVal] of Object.entries(stageObj)) {
+      if (!stageKey.startsWith("$") && PIPELINE_STAGE_NAMES.has(stageKey)) {
+        throw new CommandError(
+          EXIT.VALIDATION,
+          `validation: ${fieldName} stage '${stageKey}' at [${i}].${stageKey} is missing $ prefix — did you mean '$${stageKey}'?`,
+        );
+      }
+      // $match value is a filter — recurse with the filter validator.
+      if (stageKey === "$match") {
+        validateFilterOperators(stageVal, `${fieldName}[${i}].$match`);
+      }
+      // $group value: keys other than _id are accumulator names; their values
+      // should be {$<acc>: ...} objects. Catch bareword accumulator names.
+      if (stageKey === "$group" && stageVal !== null && typeof stageVal === "object" && !Array.isArray(stageVal)) {
+        for (const [groupKey, groupVal] of Object.entries(stageVal as Record<string, unknown>)) {
+          if (groupKey === "_id") continue;
+          if (groupVal === null || typeof groupVal !== "object" || Array.isArray(groupVal)) continue;
+          for (const accKey of Object.keys(groupVal as Record<string, unknown>)) {
+            if (!accKey.startsWith("$") && GROUP_ACCUMULATOR_NAMES.has(accKey)) {
+              throw new CommandError(
+                EXIT.VALIDATION,
+                `validation: ${fieldName} accumulator '${accKey}' at [${i}].$group.${groupKey}.${accKey} is missing $ prefix — did you mean '$${accKey}'?`,
+              );
+            }
+          }
+        }
+      }
+    }
+  }
+};
+
+/**
+ * Validates an update document. Top-level keys must be `$`-prefixed
+ * operators. Values are NOT recursed — they're user data. So
+ * `{$set: {push: "value"}}` (a legitimate field assignment) passes,
+ * but `{set: {x: 1}}` (a missing-`$` typo) is rejected.
+ */
+export const validateUpdateOperators = (doc: unknown, fieldName: string): void => {
+  if (doc === null || typeof doc !== "object" || Array.isArray(doc)) return;
+  for (const k of Object.keys(doc as Record<string, unknown>)) {
+    if (!k.startsWith("$") && UPDATE_OPERATOR_NAMES.has(k)) {
+      throw new CommandError(
+        EXIT.VALIDATION,
+        `validation: ${fieldName} operator '${k}' is missing $ prefix — did you mean '$${k}'?`,
+      );
+    }
+  }
+};
+
 export const parseJson = (
   arg: string | undefined,
   ctx: CommandContext,
