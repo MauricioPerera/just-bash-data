@@ -1,7 +1,7 @@
 // Targeted tests for the 5 fixes shipped in v1.0.1. Each block focuses on
 // one fix so a regression points to a specific origin.
 import { type CommandContext, type ExecResult, InMemoryFs } from "just-bash";
-import { beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { buildDbCommand } from "../src/commands/db.js";
 import { buildVecCommand } from "../src/commands/vec.js";
 import { PluginRegistry, type PluginOptions } from "../src/registry.js";
@@ -272,19 +272,13 @@ describe("v1.0.1 fix 3: db stats sizeBytes UTF-8 byte count", () => {
 // ─────────────────────────────────────────────────────────────────────────
 
 describe("v1.0.1 fix 4: vec import runtime validation", () => {
-  let h: Harness;
-  beforeEach(() => {
-    h = buildHarness();
-  });
-
+  // These tests need stdin override for `-`, so they construct their own
+  // fs/reg/cmd rather than using the shared Harness.
   it("rejects record missing 'id' with index in error message", async () => {
-    expect((await h.vec(["create", "v", "--dim", "3"])).exitCode).toBe(0);
     const bad = JSON.stringify([
       { id: "ok", vector: [1, 0, 0] },
       { vector: [0, 1, 0] }, // missing id
     ]);
-    const r = await h.vec(["import", "v", "-"]);
-    // Re-run with stdin
     const fs = new InMemoryFs({});
     const reg = new PluginRegistry(fs, {});
     const cmd = buildVecCommand(() => reg);
@@ -294,15 +288,15 @@ describe("v1.0.1 fix 4: vec import runtime validation", () => {
       env: new Map(),
       stdin: "",
     });
-    const r2 = await cmd.execute(["import", "v", "-"], {
+    const r = await cmd.execute(["import", "v", "-"], {
       fs,
       cwd: "/",
       env: new Map(),
       stdin: bad,
     });
-    expect(r2.exitCode).toBe(5);
-    expect(r2.stderr).toContain("index 1");
-    expect(r2.stderr).toContain("non-string id");
+    expect(r.exitCode).toBe(5);
+    expect(r.stderr).toContain("index 1");
+    expect(r.stderr).toContain("non-string id");
   });
 
   it("rejects record with wrong dim", async () => {
