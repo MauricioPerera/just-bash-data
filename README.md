@@ -19,7 +19,7 @@ Both share a single in-memory state hydrated from `IFileSystem` on first use and
 ```bash
 npm i just-bash-data just-bash
 # or pin to a specific version
-npm i just-bash-data@1.0.1 just-bash
+npm i just-bash-data@1.1.0 just-bash
 ```
 
 The plugin pulls its two upstream libs (`js-doc-store`, `js-vector-store`) directly from GitHub at install time — neither is published to npm. `npm` / `pnpm` / `yarn` all handle this transparently.
@@ -27,7 +27,7 @@ The plugin pulls its two upstream libs (`js-doc-store`, `js-vector-store`) direc
 If you need a specific commit or branch instead of the published release:
 
 ```bash
-npm i github:MauricioPerera/just-bash-data#v1.0.1 just-bash
+npm i github:MauricioPerera/just-bash-data#v1.1.0 just-bash
 ```
 
 ## Quick start
@@ -287,12 +287,12 @@ await bash2.exec(`db notes find '{}'`);   // sees the doc
 pnpm install
 pnpm typecheck     # strict, no `any`
 pnpm lint
-pnpm test          # 251 unit + integration tests
+pnpm test          # 264 unit + integration tests
 pnpm build         # ESM + CJS + .d.ts via tsup
 pnpm pack          # produces local-just-bash-data-0.0.0.tgz
 ```
 
-A full E2E smoke lives at `examples/smoke/` (181 assertions across every subcommand, every operator, every exit code, plus encryption and cross-instance persistence).
+A full E2E smoke lives at `examples/smoke/smoke-full.mjs` (243 assertions across every subcommand, every operator, every exit code, plus encryption + salt round-trip, IVF lifecycle, sentinels, operator validators, and `vec verify`).
 
 ```bash
 pnpm install

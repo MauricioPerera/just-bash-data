@@ -435,6 +435,183 @@ const main = async () => {
   }
 
   // ──────────────────────────────────────────────────────────────────
+  section("v0.4.0+: vec stats reports sizeBytes / binBytes / metaBytes");
+  {
+    const { bash } = buildBash();
+    await exec(bash, `vec create dx --dim 4 --quantize float32`);
+    await exec(bash, `vec store dx a '[1,0,0,0]'`);
+    await exec(bash, `vec store dx b '[0,1,0,0]'`);
+    const stats = okOut(await exec(bash, `vec stats dx`), "vec stats");
+    ok(typeof stats.sizeBytes === "number", "vec stats: sizeBytes is number");
+    ok(typeof stats.binBytes === "number", "vec stats: binBytes is number");
+    ok(typeof stats.metaBytes === "number", "vec stats: metaBytes is number");
+    ok(stats.sizeBytes === stats.binBytes + stats.metaBytes, "vec stats: sizeBytes = binBytes + metaBytes");
+
+    // Quantization scaling: int8 should be ~4× smaller than float32 for same dim/count.
+    const { bash: b2 } = buildBash();
+    await exec(b2, `vec create q8 --dim 64 --quantize int8`);
+    await exec(b2, `vec create f32 --dim 64`);
+    for (let i = 0; i < 10; i++) {
+      const v = JSON.stringify(Array.from({ length: 64 }, () => Math.random()));
+      await exec(b2, `vec store q8 id${i} '${v}'`);
+      await exec(b2, `vec store f32 id${i} '${v}'`);
+    }
+    const sQ8 = okOut(await exec(b2, `vec stats q8`), "stats q8");
+    const sF32 = okOut(await exec(b2, `vec stats f32`), "stats f32");
+    ok(sQ8.binBytes < sF32.binBytes, "int8.binBytes < float32.binBytes");
+  }
+
+  // ──────────────────────────────────────────────────────────────────
+  section("v0.5.0+: IVF index lifecycle (create-with-flag, build, search, drop)");
+  {
+    const { bash } = buildBash();
+    await exec(bash, `vec create v --dim 4 --ivf-clusters 3 --ivf-probes 2`);
+    // Insert enough vectors to allow k-means with 3 clusters.
+    for (let i = 0; i < 12; i++) {
+      const v = JSON.stringify([Math.cos(i), Math.sin(i), i / 12, 1 - i / 12]);
+      await exec(bash, `vec store v id${i} '${v}'`);
+    }
+    okExit(await exec(bash, `vec ivf stats v`), 3, "ivf stats: not built yet");
+    const built = okOut(await exec(bash, `vec ivf build v`), "ivf build");
+    ok(built.coll === "v", "ivf build: returns coll name");
+    const ivfStats = okOut(await exec(bash, `vec ivf stats v`), "ivf stats: after build");
+    ok(typeof ivfStats.numClusters === "number", "ivf stats: numClusters present");
+    ok(typeof ivfStats.numProbes === "number", "ivf stats: numProbes present");
+    ok(typeof ivfStats.numVectors === "number", "ivf stats: numVectors present");
+
+    // Search auto-routes through IVF.
+    const hitsIvf = okOut(await exec(bash, `vec search v '[1,0,0.5,0.5]' --k 3`), "search via IVF");
+    ok(Array.isArray(hitsIvf), "search: returns array");
+    // --no-ivf bypasses.
+    const hitsBrute = okOut(await exec(bash, `vec search v '[1,0,0.5,0.5]' --k 3 --no-ivf`), "search --no-ivf");
+    ok(Array.isArray(hitsBrute), "search --no-ivf: returns array");
+
+    // Stats includes ivf block when configured.
+    const colStats = okOut(await exec(bash, `vec stats v`), "vec stats with ivf");
+    ok(colStats.ivf !== undefined, "vec stats: ivf block present after build");
+    ok(colStats.ivf.built === true, "vec stats: ivf.built reflects state");
+
+    okOut(await exec(bash, `vec ivf drop v`), "ivf drop");
+    const after = okOut(await exec(bash, `vec stats v`), "vec stats after drop");
+    ok(after.ivf?.built === false || after.ivf === undefined, "vec stats: ivf no longer built");
+  }
+
+  // ──────────────────────────────────────────────────────────────────
+  section("v0.6.0+: lenient JSON parsing for db filters/pipelines");
+  {
+    const { bash } = buildBash();
+    await exec(bash, `db books insert '{"title":"Dune","year":1965}'`);
+    await exec(bash, `db books insert '{"title":"Foundation","year":1951}'`);
+    await exec(bash, `db books insert '{"title":"1984","year":1949}'`);
+
+    // Bareword $-prefixed key (the "$gt" needs quotes in strict JSON, but JS-literal style is accepted).
+    const r1 = okOut(await exec(bash, `db books find '{year: {$gt: 1950}}'`), "lenient: bareword $gt");
+    ok(r1.length === 2, `lenient: returns 2 books > 1950 (got ${r1.length})`);
+
+    // Single-quoted strings inside the filter.
+    const r2 = okOut(await exec(bash, `db books find "{'title': 'Dune'}"`), "lenient: single-quoted strings");
+    ok(r2.length === 1 && r2[0]?.title === "Dune", "lenient: matches Dune");
+
+    // Trailing comma.
+    const r3 = okOut(await exec(bash, `db books count '{"year":1949,}'`), "lenient: trailing comma");
+    ok(r3.count === 1, "lenient: trailing-comma filter works");
+
+    // Strings inside JSON are NOT relaxed (sacred).
+    await exec(bash, `db notes insert '{"q":"$gt: 5"}'`);
+    const r4 = okOut(await exec(bash, `db notes find '{"q":"$gt: 5"}'`), "lenient: strings sacred");
+    ok(r4.length === 1, "lenient: literal '$gt: 5' inside string preserved");
+  }
+
+  // ──────────────────────────────────────────────────────────────────
+  section("v0.7.0+: MongoDB-shell-style sentinels");
+  {
+    const { bash } = buildBash();
+    okExit(await exec(bash, `db.books find '{}'`), 2, "sentinel: db.books exit 2");
+    const stderrBytes = (await exec(bash, `db.books find '{}'`)).stderr;
+    ok(stderrBytes.includes("MongoDB-shell-style"), "sentinel: redirect mentions Mongo-style");
+    ok(stderrBytes.includes("db books find"), "sentinel: redirect points to canonical form");
+
+    okExit(await exec(bash, `vec.docs stats`), 2, "sentinel: vec.docs exit 2");
+  }
+
+  // ──────────────────────────────────────────────────────────────────
+  section("v0.8.0/0.8.1: operator $-prefix validation");
+  {
+    const { bash } = buildBash();
+    await exec(bash, `db x insert '{"year":1965}'`);
+
+    // Filter validator (v0.8.0)
+    const r1 = await exec(bash, `db x find '{"year": {gt: 1950}}'`);
+    okExit(r1, 5, "validator: bareword 'gt' rejected");
+    ok(r1.stderr.includes("$gt"), "validator: hint mentions $gt");
+
+    // Pipeline stage validator (v0.8.1)
+    const r2 = await exec(bash, `db x aggregate '[{match: {year:1965}}]'`);
+    okExit(r2, 5, "validator: bareword 'match' rejected");
+    ok(r2.stderr.includes("$match"), "validator: hint mentions $match");
+
+    // Group accumulator validator (v0.8.1)
+    const r3 = await exec(bash, `db x aggregate '[{$group: {_id: null, n: {sum: 1}}}]'`);
+    okExit(r3, 5, "validator: bareword 'sum' rejected");
+    ok(r3.stderr.includes("$sum"), "validator: hint mentions $sum");
+
+    // Update operator validator (v0.8.1)
+    const r4 = await exec(bash, `db x update '{"year":1965}' '{set: {year: 1970}}'`);
+    okExit(r4, 5, "validator: bareword 'set' rejected");
+    ok(r4.stderr.includes("$set"), "validator: hint mentions $set");
+
+    // v0.2.0 $sum:1 → $count:1 alias still works (regression check)
+    await exec(bash, `db x insert '{"genre":"sci"}'`);
+    const r5 = okOut(
+      await exec(bash, `db x aggregate '[{"$group": {"_id": "$genre", "n": {"$sum": 1}}}]'`),
+      "v0.2.0 alias: $sum:1 → $count:1",
+    );
+    ok(Array.isArray(r5) && r5.length > 0, "v0.2.0 alias produces grouped output");
+  }
+
+  // ──────────────────────────────────────────────────────────────────
+  section("v1.0.1+: collection name validation (path-traversal protection)");
+  {
+    const { bash } = buildBash();
+    okExit(await exec(bash, `db ../escape insert '{"x":1}'`), 2, "name validation: db ../escape rejected");
+    okExit(await exec(bash, `db foo.bar find '{}'`), 2, "name validation: db foo.bar rejected");
+    okExit(await exec(bash, `vec create ../evil --dim 4`), 2, "name validation: vec ../evil rejected");
+    okExit(await exec(bash, `vec stats "with space"`), 2, "name validation: name with literal space rejected");
+    okExit(await exec(bash, `db .hidden find '{}'`), 2, "name validation: leading dot rejected");
+    okExit(await exec(bash, `db -leading-hyphen find '{}'`), 2, "name validation: leading hyphen rejected");
+  }
+
+  // ──────────────────────────────────────────────────────────────────
+  section("v1.1.0+: configurable encryption salt + vec verify");
+  {
+    // Salt round-trip: same key + same salt round-trips correctly.
+    const fs = new InMemoryFs({});
+    const { bash: b1 } = buildBash({ encryptionKey: "k", salt: "test-2026" }, fs);
+    await exec(b1, `vec create v --dim 2`);
+    await exec(b1, `vec store v x '[1,0]'`);
+
+    // Reopen with same salt → vec verify reports ok=true, encrypted=true
+    const { bash: b2 } = buildBash({ encryptionKey: "k", salt: "test-2026" }, fs);
+    const v1 = okOut(await exec(b2, `vec verify v`), "verify: same key + same salt");
+    ok(v1.ok === true, "verify: ok=true with matching key/salt");
+    ok(v1.encrypted === true, "verify: encrypted=true");
+
+    // Reopen with WRONG salt → verify reports ok=false
+    const { bash: b3 } = buildBash({ encryptionKey: "k", salt: "different-salt" }, fs);
+    const v2 = okOut(await exec(b3, `vec verify v`), "verify: wrong salt");
+    ok(v2.ok === false, "verify: ok=false with mismatched salt");
+    ok(typeof v2.reason === "string", "verify: reason populated when ok=false");
+
+    // Non-encrypted: ok=true, encrypted=false
+    const { bash: b4 } = buildBash();
+    await exec(b4, `vec create plain --dim 2`);
+    await exec(b4, `vec store plain x '[1,0]'`);
+    const v3 = okOut(await exec(b4, `vec verify plain`), "verify: non-encrypted");
+    ok(v3.ok === true, "verify: ok=true when no encryption");
+    ok(v3.encrypted === false, "verify: encrypted=false when no encryption");
+  }
+
+  // ──────────────────────────────────────────────────────────────────
   console.log(`\n══════════════════════════════════════════`);
   console.log(`Total assertions: ${passed + failed}`);
   console.log(`  passed: ${passed}`);

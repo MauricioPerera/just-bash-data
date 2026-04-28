@@ -400,6 +400,39 @@ export const dropOp = async (
   return { stdout: JSON.stringify({ dropped: coll }) };
 };
 
+export const verifyOp = async (
+  reg: PluginRegistry,
+  _ctx: CommandContext,
+  parsed: ParsedArgs,
+): Promise<{ stdout: string }> => {
+  const coll = parsed.positional[1];
+  if (!coll) throw new CommandError(EXIT.USAGE, "usage: vec verify <coll>");
+  const entry = requireVecColl(reg, coll);
+  // Mirror the suffix logic from statsOp so we check the right disk file.
+  const suffix =
+    entry.quantize === "int8" ? ".q8" :
+    entry.quantize === "binary" ? ".b1" :
+    entry.quantize === "polar" ? ".p3" : "";
+  const binFile = `${coll}${suffix}.bin`;
+  // Three states:
+  //   ok=true, encrypted=false   → no encryption, nothing to verify
+  //   ok=true, encrypted=true    → encryption on, decrypt succeeded for this file
+  //   ok=false, encrypted=true   → decrypt failed (wrong key / tampered / truncated)
+  const encrypted = reg.encBin !== null;
+  const ok = !encrypted || !reg.encBin!.isCorrupted(binFile);
+  const out: Record<string, unknown> = {
+    coll,
+    ok,
+    encrypted,
+    binFile,
+  };
+  if (!ok) {
+    out["reason"] = "decrypt failed (wrong key, tampered ciphertext, or truncated IV)";
+  }
+  // verify is read-only and never throws — exit 0 carries the truth in the JSON.
+  return { stdout: JSON.stringify(out) };
+};
+
 export const exportOp = async (
   reg: PluginRegistry,
   _ctx: CommandContext,

@@ -99,6 +99,16 @@ stdout on `exitCode=0` is always a single JSON document. There are no global vec
 - stdout: `{ "dropped": "<coll>" }`
 - exit: 0 | 2 (no IVF config) | 3 (index not built)
 
+### `vec verify <coll>` (v1.1.0+)
+- Explicit decrypt-success check. Always exit 0 — the truth is in the JSON.
+- stdout: `{ "coll": "<coll>", "ok": bool, "encrypted": bool, "binFile": "<filename>" [, "reason": "..." ] }`
+- States:
+  - `{ok: true, encrypted: false}` — no encryption configured
+  - `{ok: true, encrypted: true}` — decrypted successfully
+  - `{ok: false, encrypted: true, reason: "decrypt failed (...)"}` — wrong key, tampered ciphertext, truncated IV
+- Companion to v1.0.1's `corrupted: true` flag in `vec stats`. `vec verify` is the explicit / foreground check; `vec stats` surfaces the same signal in passing.
+- exit: 0 (always — the JSON has the verdict) | 2 (bad coll name / missing arg) | 3 (collection not registered)
+
 ## Stderr conventions
 
 - exit 2: `usage: vec <subcommand> [...]\n<hint>` or `invalid vector: expected number[] of length <dim>`

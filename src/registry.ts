@@ -26,6 +26,21 @@ export interface PluginOptions {
   encryptionKey?: string;
   authSecret?: string;
   rootDir?: string;
+  /**
+   * Optional PBKDF2 salt prefix (v1.1.0+). When set, the JSON and binary
+   * encrypted adapters derive their AES keys from `${salt}:json` and
+   * `${salt}:bin` respectively — preserving the two-distinct-keys property
+   * that the hardcoded defaults give. When unset, the defaults are
+   * `js-doc-store-v1` (JSON) and `js-vector-store-v1` (bin), matching
+   * v1.0.x behavior exactly.
+   *
+   * **Caveat**: changing the salt is equivalent to changing the password
+   * from the data's perspective — existing encrypted files become
+   * unreadable. For migration, decrypt with the old config (export to
+   * plaintext via `db <coll> export` / `vec export`), drop, recreate
+   * with the new salt, and reimport.
+   */
+  salt?: string;
 }
 
 export interface IvfConfig {
@@ -66,15 +81,31 @@ export class PluginRegistry {
   private async setupEncryption(): Promise<void> {
     if (this.encReady) return this.encReady;
     if (!this.opts.encryptionKey) return;
+    // When opts.salt is provided, derive distinct salts per adapter so the
+    // JSON and bin keys diverge (matching the hardcoded-defaults behavior).
+    // When unset, omit the third arg to preserve v1.0.x exact byte-equivalence.
+    const userSalt = this.opts.salt;
     this.encReady = (async () => {
-      this.encJson = await EncryptedAdapter.create(
-        this.mem as SyncJsonAdapter,
-        this.opts.encryptionKey as string,
-      );
-      this.encBin = await EncryptedBinAdapter.create(
-        this.mem,
-        this.opts.encryptionKey as string,
-      );
+      this.encJson = userSalt !== undefined
+        ? await EncryptedAdapter.create(
+            this.mem as SyncJsonAdapter,
+            this.opts.encryptionKey as string,
+            `${userSalt}:json`,
+          )
+        : await EncryptedAdapter.create(
+            this.mem as SyncJsonAdapter,
+            this.opts.encryptionKey as string,
+          );
+      this.encBin = userSalt !== undefined
+        ? await EncryptedBinAdapter.create(
+            this.mem,
+            this.opts.encryptionKey as string,
+            `${userSalt}:bin`,
+          )
+        : await EncryptedBinAdapter.create(
+            this.mem,
+            this.opts.encryptionKey as string,
+          );
     })();
     return this.encReady;
   }

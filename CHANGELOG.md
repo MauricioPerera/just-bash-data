@@ -2,6 +2,37 @@
 
 All notable changes to `just-bash-data` are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] — 2026-04-28
+
+### Added
+
+- **`PluginOptions.salt`** — configurable PBKDF2 salt for encryption.
+  - When unset (default), the JSON adapter keeps `js-doc-store-v1` and the bin adapter keeps `js-vector-store-v1` — exactly v1.0.x behavior, byte-equivalent on disk.
+  - When set, the JSON adapter uses `${salt}:json` and the bin adapter uses `${salt}:bin` — preserving the two-distinct-keys property of the defaults while letting the operator rotate the keying material independently of the password.
+  - **Migration caveat**: changing the salt is equivalent to changing the password from the data's perspective — existing files become unreadable. Decrypt with the old config first (`db <coll> export` / `vec export`), drop, recreate with the new salt, reimport.
+
+- **`vec verify <coll>`** — explicit decrypt-success check.
+  - Returns `{coll, ok, encrypted, binFile [, reason]}`. Always exit 0; the truth lives in the JSON.
+  - Distinguishes the three states a `vec stats` query couldn't:
+    - `{ok: true, encrypted: false}` — no encryption configured
+    - `{ok: true, encrypted: true}` — decrypted successfully
+    - `{ok: false, encrypted: true, reason: "decrypt failed (...)"}` — wrong key, tampered ciphertext, or truncated IV
+  - Companion to v1.0.1's `corrupted: true` flag in `vec stats`. `vec verify` is the explicit, foreground check; `vec stats` is the implicit one.
+
+### Test coverage
+
+- **`smoke-full.mjs` extended from 181 → 243 E2E assertions.** Now exercises every feature added since v0.4.0: `vec stats sizeBytes`, IVF lifecycle (`build`/`stats`/`drop`/`--no-ivf`), lenient JSON (bareword keys / single-quoted strings / trailing commas), MongoDB-shell sentinels (`db.<coll>` / `vec.<coll>`), all 4 operator validators ($-prefix on filter / pipeline / group accumulator / update operator), collection name validation (path-traversal rejection), encryption salt round-trip, and `vec verify` in all three states.
+- 13 new vitest tests in `tests/v110-features.test.ts` — total **264/264** (was 251).
+
+### Compatibility
+
+Zero breaking changes. Both additions are opt-in:
+
+- Existing `createDataPlugin({ encryptionKey: ... })` calls produce the same disk format as v1.0.x.
+- `vec verify` is a new subcommand; existing `vec` invocations are unaffected.
+
+The 8-model agent transcript replay still produces 103/107 exit 0 — zero regressions.
+
 ## [1.0.1] — 2026-04-28
 
 ### Fixed
@@ -411,6 +442,7 @@ Cumulative cost reduction across the 3 retested models: **−32% per task** vs v
 - `vec stats` does not include `sizeBytes`.
 - `searchAcross` is implemented locally in this plugin (per-collection store architecture). Functionally equivalent to upstream for non-IVF cases.
 
+[1.1.0]: https://github.com/MauricioPerera/just-bash-data/releases/tag/v1.1.0
 [1.0.1]: https://github.com/MauricioPerera/just-bash-data/releases/tag/v1.0.1
 [1.0.0]: https://github.com/MauricioPerera/just-bash-data/releases/tag/v1.0.0
 [0.8.1]: https://github.com/MauricioPerera/just-bash-data/releases/tag/v0.8.1

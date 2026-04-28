@@ -1,6 +1,6 @@
 {
   "name": "just-bash-data",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "just-bash plugin: db (MongoDB-style document store) and vec (vector similarity search) commands for in-shell agents.",
   "license": "MIT",
   "author": "Mauricio Perera",

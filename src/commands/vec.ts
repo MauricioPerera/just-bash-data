@@ -16,6 +16,7 @@ import {
   statsOp,
   storeBatchOp,
   storeOp,
+  verifyOp,
 } from "./vec/ops.js";
 
 const FLAG_SPEC = {
@@ -40,6 +41,7 @@ const READ_ONLY = new Set([
   "get",
   "stats",
   "export",
+  "verify",
 ]);
 
 export type RegistryProvider = (fs: IFileSystem) => PluginRegistry;
@@ -91,6 +93,9 @@ export const buildVecCommand = (provide: RegistryProvider): Command =>
           break;
         case "ivf":
           result = await ivfOp(reg, ctx, parsed);
+          break;
+        case "verify":
+          result = await verifyOp(reg, ctx, parsed);
           break;
         default:
           throw new CommandError(EXIT.USAGE, `unknown subcommand: vec ${sub}`);

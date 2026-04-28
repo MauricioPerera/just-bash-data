@@ -214,6 +214,7 @@ Both return arrays sorted by `score` descending. **Higher score = more similar r
 vec get    <coll> <id>                           # → {id, vector, metadata}
 vec remove <coll> <id>                           # → {removed}
 vec stats  <coll>                                # → {dim, count, quantize, metric, sizeBytes, binBytes, metaBytes [, ivf, corrupted]}
+vec verify <coll>                                # → {coll, ok, encrypted, binFile [, reason]}  (v1.1.0+)
 vec export <coll>                                # → {exported, records}
 vec import <coll> <json-path-or-->               # array of {id, vector, metadata?}
 vec drop   <coll>
@@ -252,6 +253,8 @@ db chunks find "{\"_id\":{\"\$in\":[$ids]},\"tag\":\"public\"}" | jq -r '.[].bod
 ```
 
 ## Failure recovery
+
+- **`vec verify <coll>` (v1.1.0+)**: explicit corruption check. Returns `{ok: true}` for healthy collections, `{ok: false, reason: "decrypt failed..."}` for wrong-key / tampered / truncated. Always exit 0 — the truth is in the JSON. Use this proactively before `search` if you're unsure whether the encryption config is correct.
 
 - **Exit 4 "missing token"**: log in with `db auth login` and export `$AUTH_TOKEN`.
 - **Exit 4 "expired token"**: same — re-login.
