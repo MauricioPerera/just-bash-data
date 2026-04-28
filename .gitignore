@@ -5,8 +5,8 @@ coverage
 *.tgz
 examples/smoke/agent-data/
 examples/smoke/cmds.json
-examples/smoke/v2-*-out.json
-examples/smoke/v3-*-out.json
+examples/smoke/probe-cmds.json
+examples/smoke/v*-*-out.json
 .DS_Store
 .vscode
 .idea
