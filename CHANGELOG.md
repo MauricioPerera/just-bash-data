@@ -193,6 +193,10 @@ Cumulative cost reduction across the 3 retested models: **−32% per task** vs v
 - `vec stats` does not include `sizeBytes`.
 - `searchAcross` is implemented locally in this plugin (per-collection store architecture). Functionally equivalent to upstream for non-IVF cases.
 
+[0.7.0]: https://github.com/MauricioPerera/just-bash-data/releases/tag/v0.7.0
+[0.6.0]: https://github.com/MauricioPerera/just-bash-data/releases/tag/v0.6.0
+[0.5.0]: https://github.com/MauricioPerera/just-bash-data/releases/tag/v0.5.0
+[0.4.0]: https://github.com/MauricioPerera/just-bash-data/releases/tag/v0.4.0
 [0.3.1]: https://github.com/MauricioPerera/just-bash-data/releases/tag/v0.3.1
 [0.3.0]: https://github.com/MauricioPerera/just-bash-data/releases/tag/v0.3.0
 [0.2.0]: https://github.com/MauricioPerera/just-bash-data/releases/tag/v0.2.0
