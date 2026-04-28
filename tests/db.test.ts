@@ -406,6 +406,78 @@ describe("v0.3.1 H-3: per-handler empty-string policy", () => {
   });
 });
 
+describe("v0.6.0: lenient JSON parsing fallback", () => {
+  let h: Harness;
+  beforeEach(() => {
+    h = buildHarness();
+  });
+
+  it("find accepts JS-literal Mongo filter (bareword $gt)", async () => {
+    await h.run(["x", "insert", '{"year":1965}']);
+    await h.run(["x", "insert", '{"year":1951}']);
+    await h.run(["x", "insert", '{"year":1932}']);
+
+    const r = okJson<Array<{ year: number }>>(
+      await h.run(["x", "find", "{year: {$gt: 1950}}"]),
+    );
+    expect(r.map((d) => d.year).sort()).toEqual([1951, 1965]);
+  });
+
+  it("count accepts trailing comma in filter", async () => {
+    await h.run(["x", "insert", '{"genre":"scifi"}']);
+    await h.run(["x", "insert", '{"genre":"scifi"}']);
+    const r = okJson<{ count: number }>(
+      await h.run(["x", "count", '{"genre":"scifi",}']),
+    );
+    expect(r.count).toBe(2);
+  });
+
+  it("insert accepts single-quoted JS-literal docs", async () => {
+    okJson(await h.run(["x", "insert", "{'name': 'Alice', 'age': 30}"]));
+    const found = okJson<Array<{ name: string; age: number }>>(
+      await h.run(["x", "find", "{}"]),
+    );
+    expect(found[0]).toMatchObject({ name: "Alice", age: 30 });
+  });
+
+  it("aggregate accepts JS-literal pipeline (the benchmark trap)", async () => {
+    await h.run(["x", "insert", '{"genre":"scifi"}']);
+    await h.run(["x", "insert", '{"genre":"scifi"}']);
+    await h.run(["x", "insert", '{"genre":"fantasy"}']);
+    const r = okJson<Array<{ _id: string; count: number }>>(
+      await h.run([
+        "x",
+        "aggregate",
+        "[{$group: {_id: '$genre', count: {$count: 1}}}]",
+      ]),
+    );
+    const byId = Object.fromEntries(r.map((x) => [x._id, x.count]));
+    expect(byId).toEqual({ scifi: 2, fantasy: 1 });
+  });
+
+  it("strict JSON unchanged: still parses and behaves identically", async () => {
+    await h.run(["x", "insert", '{"a":1}']);
+    const strict = okJson<unknown[]>(await h.run(["x", "find", '{"a":1}']));
+    const lenient = okJson<unknown[]>(await h.run(["x", "find", "{a: 1}"]));
+    expect(strict).toEqual(lenient);
+  });
+
+  it("rejects truly malformed input with exit 2", async () => {
+    await h.run(["x", "insert", '{"a":1}']);
+    const r = await h.run(["x", "find", "{this is not json at all !!!"]);
+    expect(r.exitCode).toBe(2);
+  });
+
+  it("strings inside the input are not relaxed", async () => {
+    // Document containing the literal text "$gt: 5" — must survive intact.
+    await h.run(["x", "insert", '{"q":"$gt: 5"}']);
+    const found = okJson<Array<{ q: string }>>(
+      await h.run(["x", "find", "{q: '$gt: 5'}"]),
+    );
+    expect(found[0]?.q).toBe("$gt: 5");
+  });
+});
+
 describe("db indexes", () => {
   let h: Harness;
   beforeEach(() => {
