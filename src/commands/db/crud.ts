@@ -86,7 +86,7 @@ export const findHandler = async (
   coll: string,
 ): Promise<{ stdout: string }> => {
   ensureCollExists(reg, coll);
-  const filter = parseJson(parsed.positional[2] ?? "{}", ctx, "filter", "filter");
+  const filter = parseJson(parsed.positional[2] ?? "{}", ctx, "filter", "filter", true);
   if (!isFilter(filter)) {
     throw new CommandError(EXIT.USAGE, "filter must be an object");
   }
@@ -109,7 +109,7 @@ export const countHandler = async (
   coll: string,
 ): Promise<{ stdout: string }> => {
   ensureCollExists(reg, coll);
-  const filter = parseJson(parsed.positional[2] ?? "{}", _ctx, "filter", "filter");
+  const filter = parseJson(parsed.positional[2] ?? "{}", _ctx, "filter", "filter", true);
   if (!isFilter(filter)) {
     throw new CommandError(EXIT.USAGE, "filter must be an object");
   }
@@ -126,7 +126,7 @@ export const updateHandler = async (
   await requireAuth(reg, ctx, parsed);
   ensureCollExists(reg, coll);
   // Empty filter '' is rejected for destructive ops — agent must write '{}' explicitly.
-  const filter = parseJson(parsed.positional[2], ctx, "filter", "reject");
+  const filter = parseJson(parsed.positional[2], ctx, "filter", "reject", true);
   const update = parseJson(parsed.positional[3], ctx, "update", "reject");
   if (!isFilter(filter) || !isFilter(update)) {
     throw new CommandError(EXIT.USAGE, "filter and update must be objects");
@@ -159,7 +159,7 @@ export const removeHandler = async (
   await requireAuth(reg, ctx, parsed);
   ensureCollExists(reg, coll);
   // Empty filter '' is rejected for destructive ops — agent must write '{}' explicitly.
-  const filter = parseJson(parsed.positional[2], ctx, "filter", "reject");
+  const filter = parseJson(parsed.positional[2], ctx, "filter", "reject", true);
   if (!isFilter(filter)) {
     throw new CommandError(EXIT.USAGE, "filter must be an object");
   }

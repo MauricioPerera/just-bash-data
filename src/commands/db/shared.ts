@@ -111,11 +111,67 @@ export const relaxJson = (input: string): string => {
   return out;
 };
 
+/**
+ * Mongo filter operators. If any of these names appears as an object key
+ * WITHOUT a `$` prefix anywhere in a parsed filter, it is almost certainly
+ * a missing-`$` typo by the model rather than a legitimate field named `gt`.
+ *
+ * v0.6.0's lenient JSON parser turns `{gt: 1950}` into `{"gt": 1950}` — valid
+ * JSON, but `gt` (no `$`) is not a recognized operator, so the doc-store
+ * silently mismatches and returns docs the agent did NOT ask for. v0.8.0
+ * restores the loud-failure property: we walk the parsed filter and reject
+ * with a clear "did you mean $gt?" message when bareword operators are seen.
+ *
+ * Set covers the operators documented in AGENTS.md `db find` filter syntax:
+ * comparison, membership, existence, regex, contains, size, plus the
+ * top-level logical combinators.
+ */
+const FILTER_OPERATOR_NAMES: ReadonlySet<string> = new Set([
+  "eq", "ne", "gt", "gte", "lt", "lte",
+  "in", "nin",
+  "exists", "regex", "contains", "size",
+  "and", "or", "not",
+]);
+
+/**
+ * Walks a parsed filter value and throws if a non-`$`-prefixed operator name
+ * appears as an object key. Recurses through arrays and nested objects so
+ * `{$or: [{a: 1}, {b: {gt: 5}}]}` is caught at the inner `gt`.
+ *
+ * False-positive risk: a user with a legitimate field literally named `gt`
+ * in their data. Rare, and the error message is explicit enough to recover
+ * (rename the field or quote it inside `$eq`).
+ */
+export const validateFilterOperators = (
+  value: unknown,
+  fieldName: string,
+  path: string = "",
+): void => {
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i++) {
+      validateFilterOperators(value[i], fieldName, `${path}[${i}]`);
+    }
+    return;
+  }
+  if (typeof value !== "object" || value === null) return;
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    if (!k.startsWith("$") && FILTER_OPERATOR_NAMES.has(k)) {
+      const here = path ? `${path}.${k}` : k;
+      throw new CommandError(
+        EXIT.VALIDATION,
+        `validation: ${fieldName} operator '${k}' at ${here} is missing $ prefix — did you mean '$${k}'?`,
+      );
+    }
+    validateFilterOperators(v, fieldName, path ? `${path}.${k}` : k);
+  }
+};
+
 export const parseJson = (
   arg: string | undefined,
   ctx: CommandContext,
   fieldName: string,
   emptyPolicy: EmptyPolicy = "reject",
+  validateFilter: boolean = false,
 ): unknown => {
   if (arg === undefined) {
     throw new CommandError(EXIT.USAGE, `missing ${fieldName} argument`);
@@ -129,18 +185,23 @@ export const parseJson = (
       `${fieldName} cannot be empty (use '{}' explicitly if you mean an empty object)`,
     );
   }
+  let value: unknown;
   try {
-    return JSON.parse(text);
+    value = JSON.parse(text);
   } catch {
     // Fallback: try the lenient (JS-literal-style) parser. Covers bareword keys,
     // single-quoted strings, and trailing commas — the most common patterns
     // LLM agents emit instead of strict JSON.
     try {
-      return JSON.parse(relaxJson(text));
+      value = JSON.parse(relaxJson(text));
     } catch {
       throw new CommandError(EXIT.USAGE, `invalid json: ${fieldName}`);
     }
   }
+  if (validateFilter) {
+    validateFilterOperators(value, fieldName);
+  }
+  return value;
 };
 
 export const ensureSingleStdinDash = (positionals: readonly string[]): void => {

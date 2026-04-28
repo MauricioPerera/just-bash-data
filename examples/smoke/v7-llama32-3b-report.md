@@ -107,3 +107,16 @@ Risk to manage: legitimate user fields named `gt` / `lt` etc. — mitigation
 is to only flag value-objects (not top-level keys, not deep-nested data
 sub-trees) and document the rule. Likely safe given the LLM-tooling target
 audience.
+
+---
+
+**Update — v0.8.0 (2026-04-28):** the proposal above was implemented. Cmd
+#7 now produces:
+
+```
+exit 5
+validation: filter operator 'gt' at year.gt is missing $ prefix — did you mean '$gt'?
+```
+
+The agent's retry loop now has an actionable signal again. See
+`compare-v4-v7-v8.mjs` for the three-way diff.

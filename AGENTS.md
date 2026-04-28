@@ -97,6 +97,8 @@ To reduce friction with models trained on MongoDB conventions:
 
 - **Dot-syntax sentinels (v0.7.0+)**: if you emit MongoDB-shell-style `db.books find '{}'`, bash will dispatch to the literal command `db.books` (not `db` with an arg). For ~30 common collection names the plugin pre-registers a sentinel that responds with `exit 2` and a redirect message pointing at the canonical space-separated form `db books find '{}'`. **The parenthesised form `db.books.find(...)` is rejected by bash itself before any command dispatch — it is uninterceptable.** Always use `<tool> <coll> <subcommand>` (space-separated, no dots, no parens).
 
+- **Operator $-prefix validation (v0.8.0+)**: filter operators MUST be `$`-prefixed. The lenient JSON parser will happily quote bareword keys (`{gt: 1950}` → `{"gt": 1950}`), but the validator catches `gt` / `lt` / `eq` / `in` / `or` / etc. without `$` and rejects with **exit 5** + a "did you mean `$gt`?" hint that includes the path of the offending key. Applies to all four filter handlers: `find`, `count`, `update`, `remove`. Aggregate pipeline stages and update operators (`$set` / `$inc` / …) are not yet validated.
+
 ### IVF index for vector search (v0.5.0+)
 
 For collections with >10K vectors where exhaustive search becomes slow, enable IVF (Inverted File) clustering at create time:

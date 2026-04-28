@@ -478,6 +478,90 @@ describe("v0.6.0: lenient JSON parsing fallback", () => {
   });
 });
 
+describe("v0.8.0: filter operator $-prefix validation", () => {
+  let h: Harness;
+  beforeEach(() => {
+    h = buildHarness();
+  });
+
+  it("the v0.4→v0.7 silent regression now fails loud (exit 5)", async () => {
+    // Llama 3.2 3B benchmark cmd #7 verbatim: missing $ on the operator name.
+    // v0.4.0: exit 2 (invalid json). v0.6.0–v0.7.0: exit 0 returning ALL docs.
+    // v0.8.0: exit 5 with a clear "did you mean $gt?" message.
+    await h.run(["books", "insert", '{"year":1965}']);
+    await h.run(["books", "insert", '{"year":1937}']);
+    const r = await h.run(["books", "find", '{"year": {gt: 1950}}']);
+    expect(r.exitCode).toBe(5);
+    expect(r.stderr).toContain("missing $ prefix");
+    expect(r.stderr).toContain("$gt");
+  });
+
+  it("count rejects bareword operators in filter", async () => {
+    await h.run(["x", "insert", '{"age":20}']);
+    const r = await h.run(["x", "count", "{age: {gte: 18}}"]);
+    expect(r.exitCode).toBe(5);
+    expect(r.stderr).toContain("$gte");
+  });
+
+  it("update rejects bareword operators in filter", async () => {
+    await h.run(["x", "insert", '{"age":20}']);
+    const r = await h.run(["x", "update", "{age: {lt: 18}}", '{"$set":{"y":1}}']);
+    expect(r.exitCode).toBe(5);
+    expect(r.stderr).toContain("$lt");
+  });
+
+  it("remove rejects bareword operators in filter", async () => {
+    await h.run(["x", "insert", '{"tag":"a"}']);
+    const r = await h.run(["x", "remove", "{tag: {in: [\"a\"]}}"]);
+    expect(r.exitCode).toBe(5);
+    expect(r.stderr).toContain("$in");
+  });
+
+  it("error path includes the offending key location", async () => {
+    await h.run(["x", "insert", '{"a":1}']);
+    const r = await h.run(["x", "find", '{"user": {"profile": {"age": {"lt": 30}}}}']);
+    expect(r.exitCode).toBe(5);
+    expect(r.stderr).toContain("user.profile.age.lt");
+  });
+
+  it("$-prefixed canonical form is unchanged", async () => {
+    await h.run(["x", "insert", '{"year":1965}']);
+    await h.run(["x", "insert", '{"year":1937}']);
+    const r = okJson<Array<{ year: number }>>(
+      await h.run(["x", "find", '{"year": {"$gt": 1950}}']),
+    );
+    expect(r.map((d) => d.year)).toEqual([1965]);
+  });
+
+  it("v0.6.0 lenient JSON still works for $-prefixed bareword keys", async () => {
+    // {$gt: 1950} (with $) → relaxed to {"$gt": 1950} → valid operator.
+    // This is the v0.6.0 happy path that v0.8.0 must NOT break.
+    await h.run(["x", "insert", '{"year":1965}']);
+    await h.run(["x", "insert", '{"year":1937}']);
+    const r = okJson<Array<{ year: number }>>(
+      await h.run(["x", "find", "{year: {$gt: 1950}}"]),
+    );
+    expect(r.map((d) => d.year)).toEqual([1965]);
+  });
+
+  it("operator-named keys inside string values do NOT trigger validation", async () => {
+    await h.run(["x", "insert", '{"note":"use $gt for ranges"}']);
+    const r = okJson<unknown[]>(
+      await h.run(["x", "find", '{"note":"use $gt for ranges"}']),
+    );
+    expect(r).toHaveLength(1);
+  });
+
+  it("operator-named values inside $in arrays do NOT trigger validation", async () => {
+    await h.run(["x", "insert", '{"tag":"gt"}']);
+    await h.run(["x", "insert", '{"tag":"lt"}']);
+    const r = okJson<unknown[]>(
+      await h.run(["x", "find", '{"tag":{"$in":["gt","lt"]}}']),
+    );
+    expect(r).toHaveLength(2);
+  });
+});
+
 describe("db indexes", () => {
   let h: Harness;
   beforeEach(() => {

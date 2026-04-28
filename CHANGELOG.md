@@ -2,6 +2,45 @@
 
 All notable changes to `just-bash-data` are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] — 2026-04-28
+
+### Added
+
+- **Operator-aware filter validation.** When the `db` filter argument (in `find`, `count`, `update`, `remove`) contains a non-`$`-prefixed key matching a known Mongo operator name (`gt`, `lt`, `eq`, `in`, `or`, `and`, …), the handler now rejects with **exit 5** and a clear redirect:
+
+  ```
+  validation: filter operator 'gt' at year.gt is missing $ prefix — did you mean '$gt'?
+  ```
+
+- The validator walks the entire filter tree (objects + arrays) so deep paths like `$or[1].b.lt` are reported with full location.
+- 19 new unit tests in `tests/lib/filter-operators.test.ts` + 9 new integration tests in `tests/db.test.ts` covering all 4 handlers, path reporting, false-positive boundaries, and the v0.6.0 happy-path round-trip. Total suite: **202/202** (was 174).
+
+### Why
+
+The post-v0.7.0 retest of Llama 3.2 3B (`examples/smoke/v7-llama32-3b-report.md`) revealed that the v0.6.0 lenient JSON parser had a **silent regression**: the model emitted `{year: {gt: 1950}}` (bareword operator missing `$`), the relaxer turned it into valid JSON `{"year": {"gt": 1950}}`, but the doc-store treated `{gt: 1950}` as a literal value (no recognized operator) and matched **all** documents instead of just the 4 with `year > 1950`. The agent got `exit 0` + wrong data — strictly worse than the v0.4.0 `exit 2 invalid json: filter` it used to see.
+
+v0.8.0 restores the loud-failure property: parse-success no longer implies semantic correctness. The agent now gets a precise error pointing at the exact key that needs `$`.
+
+### Empirical impact (Llama 3.2 3B benchmark replay)
+
+| | v0.4.0 | v0.7.0 | v0.8.0 |
+|---|---|---|---|
+| exit 0 | 10/12 | 11/12 | 10/12 |
+| **functionally correct** | **10/12** | **10/12** | **10/12** |
+| silent semantic failure | — | **1** | **0** |
+
+Going from 11→10 exit-0 is the *correct* direction: cmd #7's "success" in v0.7.0 was a lie. Now the agent has actionable signal.
+
+### Compatibility
+
+- Strict, `$`-prefixed filters (`{"$gt": 1950}`) and the v0.6.0 lenient round-trip (`{$gt: 1950}` → `{"$gt": 1950}`) are unchanged.
+- Operator names appearing as **string values** (`{"note": "use $gt"}`, `{"tags": {"$in": ["gt", "lt"]}}`) are unchanged — only object **keys** are validated.
+- Pipeline (`aggregate`) and update operator (`{"$set": {...}}`) shapes are NOT yet validated. v0.8.0 scope is filter-only — pipeline-stage and update-operator validation is a candidate for v0.8.1.
+
+### Caveats
+
+- A user with a legitimate field literally named `gt` / `lt` / `eq` / etc. in their data will now get a false-positive rejection. The error message is explicit enough to recover (rename, or wrap in `$eq`). This is documented as a known limitation; the LLM-tooling target audience makes the trade-off favorable.
+
 ## [0.7.0] — 2026-04-28
 
 ### Added
@@ -193,6 +232,7 @@ Cumulative cost reduction across the 3 retested models: **−32% per task** vs v
 - `vec stats` does not include `sizeBytes`.
 - `searchAcross` is implemented locally in this plugin (per-collection store architecture). Functionally equivalent to upstream for non-IVF cases.
 
+[0.8.0]: https://github.com/MauricioPerera/just-bash-data/releases/tag/v0.8.0
 [0.7.0]: https://github.com/MauricioPerera/just-bash-data/releases/tag/v0.7.0
 [0.6.0]: https://github.com/MauricioPerera/just-bash-data/releases/tag/v0.6.0
 [0.5.0]: https://github.com/MauricioPerera/just-bash-data/releases/tag/v0.5.0
