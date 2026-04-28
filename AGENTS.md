@@ -93,6 +93,8 @@ To reduce friction with models trained on MongoDB conventions:
 
 - **Empty string is empty filter (read-only handlers only)**: `db users find ''` and `db users count ''` are equivalent to using `'{}'`. Aggregate accepts `''` as the empty pipeline `[]` (no-op). **Destructive handlers reject `''`**: `remove`, `update`, `insert`, and `import` require explicit `'{}'` / `'[]'` to avoid silent mass-mutation if a model emits an empty arg by mistake.
 
+- **Lenient JSON fallback (v0.6.0+)**: when strict `JSON.parse` fails on a positional JSON arg, the plugin retries with a permissive parser that accepts JS-object-literal style: bareword keys (`{$gt: 1950}`), single-quoted strings (`{'a': 'b'}`), and trailing commas (`{a:1,}`). Strict JSON behavior is unchanged. String content (the actual text, e.g. `"foo: bar"`) is never modified by the relaxer. If neither strict nor lenient parsing succeeds, you still get `exit 2 invalid json: <field>`.
+
 ### IVF index for vector search (v0.5.0+)
 
 For collections with >10K vectors where exhaustive search becomes slow, enable IVF (Inverted File) clustering at create time:

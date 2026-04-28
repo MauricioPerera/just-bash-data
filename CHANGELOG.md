@@ -2,6 +2,32 @@
 
 All notable changes to `just-bash-data` are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] — 2026-04-28
+
+### Added
+
+- **Lenient JSON parsing fallback** for every `db` positional JSON argument. When strict `JSON.parse` rejects the input, the plugin retries with a permissive parser (`relaxJson`) that handles three idioms LLMs commonly emit:
+  - **Bareword keys**: `{$gt: 1950}` → `{"$gt": 1950}` (the recurring benchmark trap)
+  - **Single-quoted strings**: `{'name': 'Alice'}` → `{"name": "Alice"}`
+  - **Trailing commas**: `{a:1,}` and `[1,2,]` survive
+
+  Hand-rolled char-by-char tokenizer (~75 LOC, zero dependency). Only transforms tokens **outside** string literals — `{"x": "key: value"}` and `{"q": "$gt: 5"}` are unchanged through both passes.
+
+- 21 new unit tests in `tests/lib/relax-json.test.ts` + 7 new integration tests in `tests/db.test.ts` exercising lenient JSON through `find`, `count`, `insert`, and `aggregate`. Total suite: **167/167** (was 139).
+
+### Why
+
+The 8-model agent benchmark identified Llama 3.2 3B and Llama 3.1 8B FP as consistent emitters of `{$gt: 1950}` JS-literal style. v0.4.0 retest left their `find` step failing for this reason. v0.6.0 closes that gap without a JSON5 dependency or any change to strict-JSON behavior.
+
+### Compatibility
+
+Zero breaking changes. The relaxer never runs on input that `JSON.parse` accepts directly. True garbage still produces exit 2.
+
+### Caveats
+
+- Narrow relaxer; no JSON5 comments, hex numbers, `Infinity`, etc. are supported.
+- Bareword `true` / `false` / `null` are recognized as JSON literals (not quoted as keys).
+
 ## [0.5.0] — 2026-04-28
 
 ### Added
