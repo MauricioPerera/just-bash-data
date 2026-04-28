@@ -1,5 +1,6 @@
 # `just-bash-data`
 
+[![npm](https://img.shields.io/npm/v/just-bash-data.svg)](https://www.npmjs.com/package/just-bash-data)
 [![CI](https://github.com/MauricioPerera/just-bash-data/actions/workflows/ci.yml/badge.svg)](https://github.com/MauricioPerera/just-bash-data/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
@@ -15,14 +16,18 @@ Both share a single in-memory state hydrated from `IFileSystem` on first use and
 ## Install
 
 ```bash
-# From npm (when published)
 npm i just-bash-data just-bash
-
-# Directly from GitHub
-npm i github:MauricioPerera/just-bash-data just-bash
+# or pin to a specific version
+npm i just-bash-data@0.3.1 just-bash
 ```
 
-The plugin pulls `js-doc-store` and `js-vector-store` from GitHub directly (neither is published to npm).
+The plugin pulls its two upstream libs (`js-doc-store`, `js-vector-store`) directly from GitHub at install time — neither is published to npm. `npm` / `pnpm` / `yarn` all handle this transparently.
+
+If you need a specific commit or branch instead of the published release:
+
+```bash
+npm i github:MauricioPerera/just-bash-data#v0.3.1 just-bash
+```
 
 ## Quick start
 
