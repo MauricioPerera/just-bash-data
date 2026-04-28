@@ -12,14 +12,14 @@ A plugin for [`just-bash`](https://github.com/vercel-labs/just-bash) that gives 
 
 Both share a single in-memory state hydrated from `IFileSystem` on first use and atomically flushed back after every mutating command.
 
-> **Benchmark**: 8 Cloudflare Workers AI models (Granite 4.0, Llama 3.1/3.2 8B family, Llama 4 Scout MoE, GPT-OSS-20B, Gemma 4 26B) tested as agents driving the `db` command. **Granite wins on cost** ($0.000107/task, 7/7 completion). **GPT-OSS-20B wins on turns** (2 turns to DONE, 92% precision). **Gemma 4 wins on precision** (100%, zero retries, 16× the cost). Three permissive-parsing fixes (v0.2.0 → v0.3.1) cut total cost by **41%** vs v0.1.0 with zero breaking changes. Full report with cost analysis, context window comparison, and per-model behaviour notes: [examples/smoke/BENCHMARK.md](examples/smoke/BENCHMARK.md).
+> **Benchmark**: 8 Cloudflare Workers AI models (Granite 4.0, Llama 3.1/3.2 8B family, Llama 4 Scout MoE, GPT-OSS-20B, Gemma 4 26B) tested as agents driving the `db` command. **Granite wins on cost** ($0.000107/task, 7/7 completion). **GPT-OSS-20B wins on turns** (2 turns to DONE, 92% precision). **Gemma 4 wins on precision** (100%, zero retries, 16× the cost). Permissive-parsing aliases (v0.2.0 → v0.3.1) cut total cost by **41%** vs v0.1.0 with zero breaking changes. v0.6.0–v0.8.1 added lenient JSON parsing + operator `$`-prefix validation, taking the agent-trace replay to **103/107 commands exit 0 (96.3%)** with zero regressions across all 8 models — full v0.8.1 retest report at [examples/smoke/v8-benchmark-report.md](examples/smoke/v8-benchmark-report.md). Original cost analysis: [examples/smoke/BENCHMARK.md](examples/smoke/BENCHMARK.md).
 
 ## Install
 
 ```bash
 npm i just-bash-data just-bash
 # or pin to a specific version
-npm i just-bash-data@0.3.1 just-bash
+npm i just-bash-data@1.0.0 just-bash
 ```
 
 The plugin pulls its two upstream libs (`js-doc-store`, `js-vector-store`) directly from GitHub at install time — neither is published to npm. `npm` / `pnpm` / `yarn` all handle this transparently.
@@ -27,7 +27,7 @@ The plugin pulls its two upstream libs (`js-doc-store`, `js-vector-store`) direc
 If you need a specific commit or branch instead of the published release:
 
 ```bash
-npm i github:MauricioPerera/just-bash-data#v0.3.1 just-bash
+npm i github:MauricioPerera/just-bash-data#v1.0.0 just-bash
 ```
 
 ## Quick start
@@ -277,10 +277,9 @@ await bash2.exec(`db notes find '{}'`);   // sees the doc
 
 ## Limitations / known deviations from spec
 
-- **`vec stats` does not include `sizeBytes`.** Upstream vector-store does not expose internal byte size; computing it would require iterating manifests.
 - **`searchAcross` is implemented in this plugin, not upstream.** Each `vec create` produces an independent store instance, so cross-collection search is performed by merging per-collection searches by score. Functionally equivalent for non-IVF cases.
-- **No IVF wrapper.** The upstream `IVFIndex` exists but isn't exposed as a CLI flag yet.
-- **TypeScript consumers need `--skipLibCheck`** because of an upstream `just-bash@2.14.3` packaging issue (its published `.d.ts` references files not included in the npm tarball). This plugin's own types are clean.
+- **`db.<coll>.<method>(...)` parens form is uninterceptable.** Bash fails with a parse error on `(` before any command dispatch happens. The space-separated `db <coll> <method>` form is the only one this plugin can serve. The dot-syntax-without-parens form (`db.<coll> <method>`) is caught by sentinels for ~30 common collection names — see v0.7.0 release notes.
+- **TypeScript consumers may need `--skipLibCheck`** if the installed `just-bash@2.14.3` reproduces the upstream `.d.ts` packaging issue (publishes `.d.ts` files referencing paths not in the tarball). This plugin's own types are clean.
 
 ## Development
 
@@ -288,7 +287,7 @@ await bash2.exec(`db notes find '{}'`);   // sees the doc
 pnpm install
 pnpm typecheck     # strict, no `any`
 pnpm lint
-pnpm test          # 105 unit tests
+pnpm test          # 230 unit + integration tests
 pnpm build         # ESM + CJS + .d.ts via tsup
 pnpm pack          # produces local-just-bash-data-0.0.0.tgz
 ```

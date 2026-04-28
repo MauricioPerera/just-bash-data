@@ -2,6 +2,118 @@
 
 All notable changes to `just-bash-data` are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] — 2026-04-28
+
+### Stability commitment
+
+`just-bash-data` is now declared **stable**. The v0.x line shipped 9 releases over ~24 hours of focused iteration, each one driven by empirical signal from an 8-model agent benchmark. v1.0.0 ships the same code as v0.8.1 (no functional changes) and commits to **strict semver** going forward:
+
+- **MAJOR (2.0.0+)**: any breaking change to the public API surface, exit-code contract, on-disk file layout, or documented command-line semantics.
+- **MINOR (1.x.0)**: additive features. Permissive aliases that turn previously-rejected input into success are *additive*. New subcommands, new flags, new fields in JSON output are *additive*.
+- **PATCH (1.0.x)**: bug fixes that don't change documented behavior, dependency bumps, build-only changes.
+
+### Public API surface (stable as of 1.0.0)
+
+```typescript
+// Library entry — exported from "just-bash-data"
+export { createDataPlugin, type PluginOptions, sentinelNames } from "just-bash-data";
+```
+
+```bash
+# db command — every subcommand and flag below is a stability contract
+db <coll> insert <json>
+db <coll> find <filter> [--sort f:1|-1] [--limit N] [--skip N] [--project f1,f2]
+db <coll> find <filter> <options-json>           # options form
+db <coll> count <filter>
+db <coll> update <filter> <update> [--many]
+db <coll> remove <filter> [--many]
+db <coll> aggregate <pipeline>
+db <coll> drop                                   # admin role required when authSecret set
+db <coll> stats                                  # → {count, indexes, sizeBytes}
+db <coll> export                                 # → {exported, docs}
+db <coll> import <docs-json>
+db <coll> index create <field> [--sorted] [--unique]
+db <coll> index drop <field>
+db <coll> index list
+db auth register|login|verify|logout|role
+```
+
+```bash
+# vec command
+vec create <coll> --dim N [--quantize f32|int8|polar|binary] [--metric cosine|euclidean|dot|manhattan] [--ivf [--ivf-clusters N] [--ivf-probes N]]
+vec store <coll> <id> <vector-json> [--meta <json>]
+vec store-batch <coll> <jsonl-path-or-->
+vec search <coll> <vec> [--k N=10] [--metric M] [--matryoshka csv] [--no-ivf]
+vec search-across <coll-csv> <vec> [--k N=10]
+vec get|remove|stats|export|import|drop <coll>
+vec ivf build|stats|drop <coll>
+```
+
+### Exit code contract (stable)
+
+```
+0  success — stdout is JSON
+1  runtime / internal error
+2  usage error (bad args, malformed JSON, dim too large)
+3  not found (collection or id)
+4  auth error (missing / invalid / expired token, role required)
+5  validation error (unique constraint, dim mismatch, $-prefix missing, etc.)
+```
+
+### Permissive parsing aliases (stable behavior)
+
+All of these will continue to be accepted across the 1.x line:
+
+- Empty-string filter `''` → `{}` (read handlers only)
+- Empty-string pipeline `''` → `[]` (aggregate)
+- `find` options object as second positional
+- `{"$sum": <number>}` → `{"$count": 1}` rewrite (counting idiom)
+- Lenient JSON: bareword keys, single-quoted strings, trailing commas
+- Dot-syntax sentinels for ~30 common collection names
+
+### Operator `$`-prefix validation (stable failure mode)
+
+- Filter operators: `eq, ne, gt, gte, lt, lte, in, nin, exists, regex, contains, size, and, or, not`
+- Pipeline stages: `match, lookup, group, sort, limit, skip, project, unwind`
+- Group accumulators: `count, sum, avg, min, max, push, first, last`
+- Update operators: `set, unset, inc, push, pull, rename`
+
+Bareword forms (without `$`) reject with **exit 5** + `did you mean '$X'?` hint and the path of the offending key.
+
+### Documented hard limitations
+
+- `db.<coll>.<method>(...)` (parens form) triggers a bash parse error before any command dispatch — uninterceptable from inside the plugin.
+- `db <coll> aggregate <filter> <accumulator>` (two args instead of pipeline array) is a structural error, not a parsing one — no alias provided because the semantics of "two-arg aggregate" are ambiguous.
+- IVF in `js-vector-store` always uses cosine internally; `vec search` with explicit `--metric` falls back to brute force regardless of IVF state.
+- A user with a legitimate field literally named `gt`/`lt`/`set`/etc. in their data triggers a false-positive validator rejection. Mitigation: the error message names the field; rename or wrap in `$eq`.
+
+### Empirical justification
+
+8-model agent transcript replay against v1.0.0 (= v0.8.1):
+
+```
+Granite 4.0          16/16
+Llama 3.2 3B         10/12
+Llama 3.1 8B AWQ     12/12
+Llama 3.1 8B FP      12/12
+Llama 3.2 11B-V      15/17     (2 uninterceptable parens-form fails)
+GPT-OSS-20B          13/13
+Llama 4 Scout        13/13
+Gemma 4 26B          12/12
+─────────────────────────
+                    103/107   (96.3%)
+```
+
+vs v0.4.0 reference set: +1 fix, 0 regressions, 1 silent-failure prevented. Full report: [`examples/smoke/v8-benchmark-report.md`](examples/smoke/v8-benchmark-report.md).
+
+### Test suite
+
+230 unit + integration tests across 14 vitest files. Plus `examples/smoke/smoke-full.mjs` E2E + the 8-model benchmark replay.
+
+### Compatibility
+
+Zero functional changes from v0.8.1 — the same code, the same API, the same exit codes. The version bump is purely a stability declaration.
+
 ## [0.8.1] — 2026-04-28
 
 ### Added
@@ -265,6 +377,7 @@ Cumulative cost reduction across the 3 retested models: **−32% per task** vs v
 - `vec stats` does not include `sizeBytes`.
 - `searchAcross` is implemented locally in this plugin (per-collection store architecture). Functionally equivalent to upstream for non-IVF cases.
 
+[1.0.0]: https://github.com/MauricioPerera/just-bash-data/releases/tag/v1.0.0
 [0.8.1]: https://github.com/MauricioPerera/just-bash-data/releases/tag/v0.8.1
 [0.8.0]: https://github.com/MauricioPerera/just-bash-data/releases/tag/v0.8.0
 [0.7.0]: https://github.com/MauricioPerera/just-bash-data/releases/tag/v0.7.0
