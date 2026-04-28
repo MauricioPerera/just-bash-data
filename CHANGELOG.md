@@ -2,6 +2,36 @@
 
 All notable changes to `just-bash-data` are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] — 2026-04-28
+
+### Added
+
+- **MongoDB-shell-style sentinels for `db.<coll>` / `vec.<coll>`.** When an LLM emits the dot-separator form (`db.books find '{}'` instead of `db books find '{}'`), bash dispatches to the literal command name `db.books` — which is *not* the `db` command, so the plugin never sees it. v0.7.0 pre-registers ~60 sentinel commands (30 collection names × 2 tools) that respond with a redirect message:
+
+  ```
+  'db.books' is MongoDB-shell-style syntax.
+  This plugin uses space-separated form: 'db books <subcommand>'.
+  Example: db books find '{}'
+  ```
+
+  Sentinel exit code is **2** (bad usage). The covered name list comes from the 8-model benchmark transcripts plus common DB/test idioms (`books`, `users`, `docs`, `chunks`, `events`, `jobs`, `x`, `test`, `foo`, …). Uncovered names (`db.gadgets42`) fall through to bash's native "command not found", which is still informative.
+
+- New export `sentinelNames(): string[]` for tests / introspection of the covered list.
+
+- 7 new tests in `tests/sentinel.test.ts` covering registration, redirect message content, non-shadowing of real `db`/`vec`, and fall-through behavior. Total suite: **174/174** (was 167).
+
+### Hard limitation (documented, not fixable)
+
+- The **parenthesised form** `db.books.find('{}')` triggers a bash *parse error* on the `(` token before any command dispatch happens. There is no hook in `just-bash` to intercept syntax errors — sentinels for the parens form are physically impossible from inside the plugin. The redirect message points this out so agents stop trying.
+
+### Why
+
+Llama 3.2 3B in the agent benchmark consistently emitted `db.books` after seeing MongoDB documentation in pretraining. v0.6.0's lenient JSON closed the JS-literal gap; v0.7.0 closes the dot-syntax gap for the cases bash *can* dispatch.
+
+### Compatibility
+
+Zero breaking changes. The sentinels only respond to names that previously produced "command not found" — they never shadow `db` or `vec` themselves.
+
 ## [0.6.0] — 2026-04-28
 
 ### Added

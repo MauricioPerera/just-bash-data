@@ -1,9 +1,11 @@
 import type { CustomCommand, IFileSystem } from "just-bash";
 import { buildDbCommand } from "./commands/db.js";
 import { buildVecCommand } from "./commands/vec.js";
+import { buildSentinelCommands } from "./commands/sentinel.js";
 import { PluginRegistry, type PluginOptions } from "./registry.js";
 
 export type { PluginOptions } from "./registry.js";
+export { sentinelNames } from "./commands/sentinel.js";
 
 export const createDataPlugin = (
   opts: PluginOptions = {},
@@ -17,5 +19,9 @@ export const createDataPlugin = (
     }
     return reg;
   };
-  return [buildDbCommand(provide), buildVecCommand(provide)];
+  return [
+    buildDbCommand(provide),
+    buildVecCommand(provide),
+    ...buildSentinelCommands(),
+  ];
 };

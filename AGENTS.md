@@ -95,6 +95,8 @@ To reduce friction with models trained on MongoDB conventions:
 
 - **Lenient JSON fallback (v0.6.0+)**: when strict `JSON.parse` fails on a positional JSON arg, the plugin retries with a permissive parser that accepts JS-object-literal style: bareword keys (`{$gt: 1950}`), single-quoted strings (`{'a': 'b'}`), and trailing commas (`{a:1,}`). Strict JSON behavior is unchanged. String content (the actual text, e.g. `"foo: bar"`) is never modified by the relaxer. If neither strict nor lenient parsing succeeds, you still get `exit 2 invalid json: <field>`.
 
+- **Dot-syntax sentinels (v0.7.0+)**: if you emit MongoDB-shell-style `db.books find '{}'`, bash will dispatch to the literal command `db.books` (not `db` with an arg). For ~30 common collection names the plugin pre-registers a sentinel that responds with `exit 2` and a redirect message pointing at the canonical space-separated form `db books find '{}'`. **The parenthesised form `db.books.find(...)` is rejected by bash itself before any command dispatch — it is uninterceptable.** Always use `<tool> <coll> <subcommand>` (space-separated, no dots, no parens).
+
 ### IVF index for vector search (v0.5.0+)
 
 For collections with >10K vectors where exhaustive search becomes slow, enable IVF (Inverted File) clustering at create time:
