@@ -12,6 +12,8 @@ A plugin for [`just-bash`](https://github.com/vercel-labs/just-bash) that gives 
 
 Both share a single in-memory state hydrated from `IFileSystem` on first use and atomically flushed back after every mutating command.
 
+> **Sister project**: [`agent-skills`](https://github.com/MauricioPerera/agent-skills) is an open specification for distributing tools to LLM agents (an alternative to MCP) that uses `just-bash-data` as its reference runtime. The spec defines the format and protocol; this package provides the storage + retrieval primitives a conformant skill bank needs. See [agent-skills/IMPLEMENTATION.md](https://github.com/MauricioPerera/agent-skills/blob/main/IMPLEMENTATION.md) for how to build a skill bank atop just-bash-data.
+
 > **Benchmark**: 8 Cloudflare Workers AI models (Granite 4.0, Llama 3.1/3.2 8B family, Llama 4 Scout MoE, GPT-OSS-20B, Gemma 4 26B) tested as agents driving the `db` command. **Granite wins on cost** ($0.000107/task, 7/7 completion). **GPT-OSS-20B wins on turns** (2 turns to DONE, 92% precision). **Gemma 4 wins on precision** (100%, zero retries, 16× the cost). Permissive-parsing aliases (v0.2.0 → v0.3.1) cut total cost by **41%** vs v0.1.0 with zero breaking changes. v0.6.0–v0.8.1 added lenient JSON parsing + operator `$`-prefix validation, taking the agent-trace replay to **103/107 commands exit 0 (96.3%)** with zero regressions across all 8 models — full v0.8.1 retest report at [examples/smoke/v8-benchmark-report.md](examples/smoke/v8-benchmark-report.md). Original cost analysis: [examples/smoke/BENCHMARK.md](examples/smoke/BENCHMARK.md).
 
 ## Install
