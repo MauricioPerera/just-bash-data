@@ -158,8 +158,8 @@ const roleSub = async (
   }
   const auth = await reg.getAuth();
   try {
-    if (op === "assign") auth.assignRole(targetUser, role);
-    else if (op === "remove") auth.removeRole(targetUser, role);
+    if (op === "assign") await auth.assignRole(targetUser, role);
+    else if (op === "remove") await auth.removeRole(targetUser, role);
     else throw new CommandError(EXIT.USAGE, `unknown role op: ${op}`);
   } catch (err) {
     if (err instanceof CommandError) throw err;
