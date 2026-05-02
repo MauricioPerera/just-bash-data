@@ -12,7 +12,7 @@ A plugin for [`just-bash`](https://github.com/vercel-labs/just-bash) that gives 
 
 Both share a single in-memory state hydrated from `IFileSystem` on first use and atomically flushed back after every mutating command.
 
-> **Sister project**: [`agent-skills`](https://github.com/MauricioPerera/agent-skills) is an open specification for distributing tools to LLM agents (an alternative to MCP) that uses `just-bash-data` as its reference runtime. The spec defines the format and protocol; this package provides the storage + retrieval primitives a conformant skill bank needs. See [agent-skills/IMPLEMENTATION.md](https://github.com/MauricioPerera/agent-skills/blob/main/IMPLEMENTATION.md) for how to build a skill bank atop just-bash-data.
+> **Sister projects**: [`agent-skills`](https://github.com/MauricioPerera/agent-skills) is an open specification for distributing tools to LLM agents (an alternative to MCP) that uses `just-bash-data` as its reference runtime. [`just-bash-wiki`](https://github.com/MauricioPerera/just-bash-wiki) builds on this plugin to implement [Karpathy's LLM Wiki pattern](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) — a persistent, LLM-maintained knowledge base with semantic search.
 
 > **Benchmark**: 8 Cloudflare Workers AI models (Granite 4.0, Llama 3.1/3.2 8B family, Llama 4 Scout MoE, GPT-OSS-20B, Gemma 4 26B) tested as agents driving the `db` command. **Granite wins on cost** ($0.000107/task, 7/7 completion). **GPT-OSS-20B wins on turns** (2 turns to DONE, 92% precision). **Gemma 4 wins on precision** (100%, zero retries, 16× the cost). Permissive-parsing aliases (v0.2.0 → v0.3.1) cut total cost by **41%** vs v0.1.0 with zero breaking changes. v0.6.0–v0.8.1 added lenient JSON parsing + operator `$`-prefix validation, taking the agent-trace replay to **103/107 commands exit 0 (96.3%)** with zero regressions across all 8 models — full v0.8.1 retest report at [examples/smoke/v8-benchmark-report.md](examples/smoke/v8-benchmark-report.md). Original cost analysis: [examples/smoke/BENCHMARK.md](examples/smoke/BENCHMARK.md).
 
@@ -21,10 +21,10 @@ Both share a single in-memory state hydrated from `IFileSystem` on first use and
 ```bash
 npm i just-bash-data just-bash
 # or pin to a specific version
-npm i just-bash-data@1.1.0 just-bash
+npm i just-bash-data@1.1.2 just-bash
 ```
 
-The plugin pulls its two upstream libs (`js-doc-store`, `js-vector-store`) directly from GitHub at install time — neither is published to npm. `npm` / `pnpm` / `yarn` all handle this transparently.
+The plugin pulls its two upstream libs ([`js-doc-store`](https://www.npmjs.com/package/js-doc-store), [`js-vector-store`](https://www.npmjs.com/package/js-vector-store)) from GitHub at install time. Both are also available on npm independently.
 
 If you need a specific commit or branch instead of the published release:
 
@@ -94,6 +94,8 @@ db <coll|auth> <subcommand> [args...] [flags...]
 | `db <coll> aggregate <pipeline>` | Pipeline: `$match`/`$lookup`/`$group`/`$sort`/`$limit`/`$skip`/`$project`/`$unwind`. Accumulators: `$count`/`$sum`/`$avg`/`$min`/`$max`/`$push`/`$first`/`$last`. |
 | `db <coll> drop` | Removes the collection. **Requires `admin` role** when auth is configured. |
 | `db <coll> stats` | Returns `{count, indexes, sizeBytes}`. |
+| `db <coll> export` | Returns `{exported, docs}` with all documents. |
+| `db <coll> import <json>` | Imports an array of documents. |
 
 Any positional JSON argument can be `-` to read from stdin: `echo '{"a":1}' \| db users insert -` (only one `-` per invocation).
 
@@ -160,6 +162,10 @@ vec <subcommand> [args...] [flags...]
 | `vec export <coll>` | Returns `{exported, records}`. |
 | `vec import <coll> <json-path-or-->` | Imports an array of `{id, vector, metadata?}` records. |
 | `vec drop <coll>` | Removes the collection. |
+| `vec verify <coll>` | Checks encryption integrity. Returns `{coll, ok, encrypted, binFile}`. |
+| `vec ivf build <coll> [--sample-dims=N]` | Builds IVF (K-means) index for faster search. |
+| `vec ivf stats <coll>` | Returns IVF index statistics. |
+| `vec ivf drop <coll>` | Drops the IVF index. |
 
 ### Quantization choices
 
