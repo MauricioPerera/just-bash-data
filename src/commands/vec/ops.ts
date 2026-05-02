@@ -466,18 +466,19 @@ export const importOp = async (
       throw new CommandError(EXIT.USAGE, `cannot read input: ${src}`);
     }
   }
-  let parsedInput: unknown;
+  let raw: unknown;
   try {
-    parsedInput = JSON.parse(text);
+    raw = JSON.parse(text);
   } catch {
     throw new CommandError(EXIT.VALIDATION, "validation: invalid JSON for import");
   }
-  if (!Array.isArray(parsedInput)) {
-    if (parsedInput && typeof parsedInput === "object" && Array.isArray((parsedInput as Record<string, unknown>)["records"])) {
-      parsedInput = (parsedInput as Record<string, unknown>)["records"];
-    } else {
-      throw new CommandError(EXIT.VALIDATION, "validation: import expects an array of records");
-    }
+  let parsedInput: unknown[];
+  if (Array.isArray(raw)) {
+    parsedInput = raw;
+  } else if (raw && typeof raw === "object" && Array.isArray((raw as Record<string, unknown>)["records"])) {
+    parsedInput = (raw as Record<string, unknown>)["records"] as unknown[];
+  } else {
+    throw new CommandError(EXIT.VALIDATION, "validation: import expects an array of records");
   }
   // Validate every record before handing off to upstream — surface clear
   // errors with the offending index instead of letting upstream throw an

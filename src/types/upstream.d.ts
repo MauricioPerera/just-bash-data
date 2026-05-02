@@ -42,7 +42,7 @@ declare module "js-doc-store" {
     removeById(id: string): number;
     count(filter?: DocFilter): number;
     aggregate(): AggregationPipeline;
-    createIndex(field: string, opts?: { unique?: boolean; sorted?: boolean }): void;
+    createIndex(field: string, opts?: { unique?: boolean; sorted?: boolean; type?: "hash" | "sorted" }): void;
     dropIndex(field: string): void;
     getIndexes(): Array<{ field: string; type: string; unique?: boolean }>;
     flush(): void;
