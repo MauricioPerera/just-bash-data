@@ -220,7 +220,7 @@ export const storeBatchOp = async (
       throw new CommandError(EXIT.VALIDATION, `validation: id collision: ${check.id}`);
     }
     const rec = parsedRec as Record<string, unknown>;
-    const recMeta = rec["meta"];
+    const recMeta = rec["metadata"] ?? rec["meta"];
     const meta = recMeta && typeof recMeta === "object" && !Array.isArray(recMeta)
       ? (recMeta as Record<string, unknown>)
       : {};
@@ -473,7 +473,11 @@ export const importOp = async (
     throw new CommandError(EXIT.VALIDATION, "validation: invalid JSON for import");
   }
   if (!Array.isArray(parsedInput)) {
-    throw new CommandError(EXIT.VALIDATION, "validation: import expects an array of records");
+    if (parsedInput && typeof parsedInput === "object" && Array.isArray((parsedInput as Record<string, unknown>)["records"])) {
+      parsedInput = (parsedInput as Record<string, unknown>)["records"];
+    } else {
+      throw new CommandError(EXIT.VALIDATION, "validation: import expects an array of records");
+    }
   }
   // Validate every record before handing off to upstream — surface clear
   // errors with the offending index instead of letting upstream throw an

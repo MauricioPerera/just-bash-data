@@ -250,9 +250,11 @@ export const aggregateHandler = async (
       case "$project":
         pipe = pipe.project(arg as Record<string, unknown>);
         break;
-      case "$unwind":
-        pipe = pipe.unwind(arg as string);
+      case "$unwind": {
+        const unwindField = typeof arg === "string" && arg.startsWith("$") ? arg.slice(1) : arg;
+        pipe = pipe.unwind(unwindField as string);
         break;
+      }
       default:
         throw new CommandError(EXIT.USAGE, `unknown aggregation operator: ${op}`);
     }

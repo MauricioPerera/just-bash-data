@@ -26,7 +26,7 @@ export const indexHandler = async (
       const sorted = flagBool(parsed.flags, "sorted");
       const unique = flagBool(parsed.flags, "unique");
       try {
-        c.createIndex(field, { sorted, unique });
+        c.createIndex(field, { type: sorted ? "sorted" : "hash", unique });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         if (msg.includes("Unique constraint")) {
