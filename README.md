@@ -283,6 +283,16 @@ const bash2 = new Bash({ fs, customCommands: createDataPlugin(opts) });
 await bash2.exec(`db notes find '{}'`);   // sees the doc
 ```
 
+
+## End-to-end demos
+
+Two parallel scripts in `examples/smoke/` show the same multilingual `vec` flow against EmbeddingGemma — pick whichever embedding backend you already have wired up:
+
+| File | Backend | Why pick this one |
+|---|---|---|
+| `examples/smoke/embeddinggemma-demo.mjs` | Cloudflare Workers AI REST API directly | Zero extra infrastructure; bring a CF account + token. |
+| `examples/smoke/openai-bridge-demo.mjs` | [`openai-workers-ai-bridge`](https://github.com/MauricioPerera/openai-workers-ai-bridge) (OpenAI-compat Worker) | Same OpenAI base URL across every client (this script, LangChain, n8n, LibreChat). The bridge does **server-side Matryoshka truncation + L2 renorm** when you pass `dimensions`, so vectors land in `vec` ready for cosine without client-side reshape. Edge-cached embeddings — repeat runs cost 0 neurons. |
+
 ## Limitations / known deviations from spec
 
 - **`searchAcross` is implemented in this plugin, not upstream.** Each `vec create` produces an independent store instance, so cross-collection search is performed by merging per-collection searches by score. Functionally equivalent for non-IVF cases.
